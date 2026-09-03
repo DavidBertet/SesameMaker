@@ -1,0 +1,20 @@
+{
+  "name": "sesamemaker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "npm run lint:cli && npm run lint:frontend",
+    "lint:cli": "prettier --check \"cli/**/*.{js,mjs,cjs}\" \".prettierrc\"",
+    "lint:frontend": "cd frontend && npm run lint",
+    "format": "npm run format:cli && npm run format:frontend",
+    "format:cli": "prettier --write \"cli/**/*.{js,mjs,cjs}\" \".prettierrc\"",
+    "format:frontend": "cd frontend && npm run format",
+    "test": "npm run test:cli && npm run test:frontend && npm run test:backend",
+    "test:cli": "node --test cli/lib/*.test.js",
+    "test:frontend": "cd frontend && npm test",
+    "test:backend": "bash backend/test/run_tests.sh"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.0"
+  }
+}

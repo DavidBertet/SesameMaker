@@ -1,0 +1,114 @@
+// Copyright (c) 2026 David Bertet. Licensed under the MIT License.
+
+#include "esp_log.h"
+#include "esp_err.h"
+#include "esp_system.h"
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <esp_event.h>
+#include "esp_netif.h"
+
+#include "constants.h"
+#include "storage.h"
+#include "captdns.h"
+#include "wifi.h"
+#include "webserver.h"
+#include "spiffs.h"
+#include "sntp.h"
+
+#include "websocket.h"
+#include "ws_wifi.h"
+#include "ws_settings.h"
+#include "ws_garage.h"
+#include "ws_log.h"
+
+#include "garage_controller.h"
+#include "mqtt.h"
+
+static const char *TAG = "main";
+
+// Latch the TX pad low across software resets (OTA, esp_restart). The
+// IO-MUX hold survives the reset, so GPIO4 never floats through the
+// bootloader window where a floating base could key Q1 and the opener
+// would read a door-button press. Power cycles still need the base
+// pulldown resistor on the board - hold state is lost when power drops.
+static void hold_garage_tx_low(void)
+{
+  gpio_set_direction(GARAGE_TX_GPIO, GPIO_MODE_OUTPUT);
+  gpio_set_level(GARAGE_TX_GPIO, 0);
+  gpio_hold_en(GARAGE_TX_GPIO);
+}
+
+void app_main()
+{
+  ESP_LOGI(TAG, "IDF version: %s", esp_get_idf_version());
+
+  // Release any hold left by the previous shutdown, then hold the secplus1
+  // TX line idle from the very first instruction. Until garage_uart_init()
+  // routes the pin, GPIO4 floats during boot/wifi init and can pull the
+  // wall line low -> the opener reads a door-button press and toggles the
+  // door. Drive the NPN base low so the bus stays high.
+  gpio_hold_dis(GARAGE_TX_GPIO);
+  gpio_set_direction(GARAGE_TX_GPIO, GPIO_MODE_OUTPUT);
+  gpio_set_level(GARAGE_TX_GPIO, 0);
+
+  // Init NVS storage
+  setup_storage();
+
+  // Init TCP/IP stack
+  ESP_ERROR_CHECK(esp_netif_init());
+  // Init event mechanism
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+  // Init file storage
+  ESP_ERROR_CHECK(setup_spiffs());
+
+  // Setup captive portal - automatically opens the page when we connect to the wifi
+  // setup_captive_dns();
+
+  // Setup wifi access point
+  setup_wifi();
+
+  // Setup HTTP server
+  setup_server();
+
+  // Init hardware
+  ESP_ERROR_CHECK(garage_controller_init());
+
+  // Register websocket callbacks
+  register_callback("wifi_status", ws_handle_wifi_status);
+  register_callback("wifi_scan", ws_handle_wifi_scan);
+  register_callback("wifi_connect", ws_handle_wifi_connect);
+  register_callback("wifi_disconnect", ws_handle_wifi_disconnect);
+
+  register_callback("get_settings", ws_handle_get_settings);
+  register_callback("time_update", ws_handle_time_update);
+  register_callback("get_system_info", ws_handle_system_info);
+
+  register_callback("get_garage_status", ws_handle_get_garage_status);
+  register_callback("door_command", ws_handle_garage_door_command);
+  register_callback("light_command", ws_handle_garage_light_command);
+  register_callback("lock_command", ws_handle_garage_lock_command);
+  register_callback("get_garage_raw", ws_handle_get_garage_raw);
+  register_callback("garage_sync", ws_handle_garage_sync);
+
+  register_callback("get_mqtt_config", ws_handle_get_mqtt_config);
+  register_callback("set_mqtt_config", ws_handle_set_mqtt_config);
+
+  register_callback("log_start", ws_handle_log_start);
+  register_callback("log_stop", ws_handle_log_stop);
+  ws_log_init();
+
+  // Hold TX low across any software reset (see hold_garage_tx_low).
+  ESP_ERROR_CHECK(esp_register_shutdown_handler(hold_garage_tx_low));
+
+  // Start the garage door controller
+  ESP_ERROR_CHECK(garage_controller_start());
+
+  // MQTT bridge (subscribes to {prefix}/set, publishes {prefix}/state)
+  ESP_ERROR_CHECK(mqtt_init());
+
+  // Retrieve time from network
+  start_ntp_sync();
+}

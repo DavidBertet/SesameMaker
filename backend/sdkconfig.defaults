@@ -1,0 +1,12 @@
+# Required for the WebSocket interface (frontend <-> backend).
+CONFIG_HTTPD_WS_SUPPORT=y
+
+# Size-optimized build so the app fits the OTA slots on 2MB flash.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# Disable assertions to reclaim flash (kept INFO console logs).
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
+
+# Custom partition table (factory + OTA + SPIFFS storage).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_custom.csv"
