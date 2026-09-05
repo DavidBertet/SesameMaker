@@ -60,6 +60,10 @@ Options:
   -s, --serial                Force a USB/serial upload (build to USB only)
       --usb                   Alias for --serial
   -p, --upload-password <PWD> Set upload password for authentication
+  --wifi-ssid <SSID>          Bake WiFi credentials into firmware. Password is
+                              asked interactively (hidden input) after device
+                              selection unless you confirm reuse. Stored in
+                              backend/src/secrets.h (gitignored, never committed)
   -y, --yes                   Auto-confirm all prompts (non-interactive mode)
   -f, --frontend-only         Build/deploy frontend only
   -b, --backend-only          Build/deploy backend only
@@ -74,6 +78,7 @@ Examples:
   ./install.sh --serial                    # force USB/serial upload
   ./install.sh --usb                       # alias for --serial
   ./install.sh -o 192.168.1.100 -p mypass123 -y
+  ./install.sh --serial --wifi-ssid MyHomeWifi
   ./install.sh -f -y
   ./install.sh --backend-only --yes
   ./install.sh -d -y

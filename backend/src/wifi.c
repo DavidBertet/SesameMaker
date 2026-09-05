@@ -16,6 +16,18 @@
 #include "nvs.h"
 #include "freertos/event_groups.h"
 
+#include "constants.h"
+
+#ifndef DEFAULT_WIFI_SSID
+#define DEFAULT_WIFI_SSID ""
+#endif
+#ifndef DEFAULT_WIFI_PASSWORD
+#define DEFAULT_WIFI_PASSWORD ""
+#endif
+#ifndef DEFAULT_WIFI_GEN
+#define DEFAULT_WIFI_GEN ""
+#endif
+
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
@@ -23,6 +35,16 @@
 #define AP_WIFI_PASS "StopNow!"
 #define AP_WIFI_CHANNEL 10
 #define MAX_AP_CONN 2
+
+// Explicit-forget flag in the app "storage" NVS namespace. Set on user-initiated
+// disconnect so build-time DEFAULT_WIFI_* is not resurrected on next reboot.
+// Cleared on any new manual connect.
+#define WIFI_STORAGE_NS "storage"
+#define WIFI_FORGOT_KEY "wifi_forgot"
+// Last applied DEFAULT_WIFI_GEN. A fresh `install --wifi-ssid` bumps the baked
+// gen, so a gen mismatch means "new provisioning, override once".
+#define WIFI_GEN_KEY "wifi_gen"
+#define WIFI_GEN_MAX_LEN 16
 
 static const char *TAG = "wifi";
 
@@ -40,6 +62,10 @@ static const int WIFI_FAIL_BIT = BIT1;
 // Connection state
 static bool wifi_connecting = false;
 static bool wifi_connected = false;
+// True while setup_wifi() is about to apply build-time defaults. The
+// STA_START handler must skip its auto-connect then: set_config while a
+// connect is in flight aborts with ESP_ERR_WIFI_STATE (0x3006).
+static bool s_provision_pending = false;
 static int s_retry_num = 0;
 static const int WIFI_MAXIMUM_RETRY = 5;
 
@@ -87,6 +113,81 @@ static bool stop_reconnect_timer(void)
     esp_timer_stop(s_reconnect_timer);
     ESP_LOGI(TAG, "STA reconnect timer stopped");
     return true;
+}
+
+static bool wifi_is_forgotten(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(WIFI_STORAGE_NS, NVS_READONLY, &handle) != ESP_OK)
+    {
+        return false;
+    }
+    uint8_t forgot = 0;
+    esp_err_t err = nvs_get_u8(handle, WIFI_FORGOT_KEY, &forgot);
+    nvs_close(handle);
+    return err == ESP_OK && forgot != 0;
+}
+
+static void wifi_set_forgotten(bool forgot)
+{
+    nvs_handle_t handle;
+    if (nvs_open(WIFI_STORAGE_NS, NVS_READWRITE, &handle) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to open storage NVS for wifi forgot flag");
+        return;
+    }
+    if (forgot)
+    {
+        nvs_set_u8(handle, WIFI_FORGOT_KEY, 1);
+    }
+    else
+    {
+        nvs_erase_key(handle, WIFI_FORGOT_KEY);
+    }
+    nvs_commit(handle);
+    nvs_close(handle);
+}
+
+static bool wifi_gen_applied(const char *baked_gen)
+{
+    nvs_handle_t handle;
+    if (nvs_open(WIFI_STORAGE_NS, NVS_READONLY, &handle) != ESP_OK)
+    {
+        return false;
+    }
+    char stored[WIFI_GEN_MAX_LEN + 1] = {0};
+    size_t len = sizeof(stored);
+    esp_err_t err = nvs_get_str(handle, WIFI_GEN_KEY, stored, &len);
+    nvs_close(handle);
+    return err == ESP_OK && strcmp(stored, baked_gen) == 0;
+}
+
+static void wifi_mark_gen_applied(const char *baked_gen)
+{
+    nvs_handle_t handle;
+    if (nvs_open(WIFI_STORAGE_NS, NVS_READWRITE, &handle) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to open storage NVS for wifi gen flag");
+        return;
+    }
+    nvs_set_str(handle, WIFI_GEN_KEY, baked_gen);
+    nvs_commit(handle);
+    nvs_close(handle);
+}
+
+static void wifi_apply_build_defaults(void)
+{
+    ESP_LOGI(TAG, "Applying build-time default SSID");
+    wifi_config_t default_config = {0};
+    strncpy((char *)default_config.sta.ssid, DEFAULT_WIFI_SSID,
+            sizeof(default_config.sta.ssid) - 1);
+    strncpy((char *)default_config.sta.password, DEFAULT_WIFI_PASSWORD,
+            sizeof(default_config.sta.password) - 1);
+    default_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    default_config.sta.pmf_cfg.capable = true;
+    default_config.sta.pmf_cfg.required = false;
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &default_config));
+    ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
 static void setup_apsta(void)
@@ -156,6 +257,13 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
     {
         ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
+        if (s_provision_pending)
+        {
+            // setup_wifi() applies build-time defaults right after start and
+            // connects itself; an auto-connect here would put set_config in a
+            // connecting state and abort the boot.
+            return;
+        }
         esp_wifi_connect();
     }
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
@@ -289,16 +397,52 @@ esp_err_t setup_wifi(void)
         s_wifi_event_group = xEventGroupCreate();
     }
 
+    // Decide build-time provisioning BEFORE starting WiFi (NVS reads only).
+    // The STA_START handler auto-connects, so the decision must be visible to
+    // it before setup_sta() starts the driver.
+    //   • baked DEFAULT_WIFI_GEN differs from last applied → fresh
+    //     `install --wifi-ssid`: override stored creds + forget flag once.
+    //   • NVS empty and never explicitly forgotten → first boot fallback.
+    //   • Otherwise (gen equal) → respect runtime choices: UI-chosen network
+    //     or explicit disconnect.
+    bool provision = false;
+    if (strlen(DEFAULT_WIFI_SSID) > 0)
+    {
+        if (strlen(DEFAULT_WIFI_GEN) > 0 && !wifi_gen_applied(DEFAULT_WIFI_GEN))
+        {
+            ESP_LOGI(TAG, "New build-time WiFi provisioning, overriding stored credentials");
+            wifi_set_forgotten(false);
+            wifi_mark_gen_applied(DEFAULT_WIFI_GEN);
+            provision = true;
+        }
+        else if (!is_wifi_setup() && !wifi_is_forgotten())
+        {
+            ESP_LOGI(TAG, "No stored credentials, trying build-time default SSID");
+            if (strlen(DEFAULT_WIFI_GEN) > 0)
+            {
+                wifi_mark_gen_applied(DEFAULT_WIFI_GEN);
+            }
+            provision = true;
+        }
+    }
+    s_provision_pending = provision;
+
     // Initialize WiFi
     esp_err_t ret = setup_sta();
     if (ret != ESP_OK)
     {
+        s_provision_pending = false;
         ESP_LOGE(TAG, "Failed to initialize STA WiFi");
         setup_apsta(); // Fall back to AP mode
         return ret;
     }
 
-    // ESP-IDF will automatically try to connect with stored credentials
+    if (provision)
+    {
+        // No connect in flight (handler skipped it): safe to configure.
+        wifi_apply_build_defaults();
+        s_provision_pending = false;
+    }
     // If connection fails, we'll get a disconnect event
 
     // Wait a bit to see if connection succeeds
@@ -358,6 +502,10 @@ esp_err_t wifi_start_sta_connection(const char *ssid, const char *password)
     // Manual attempt supersedes background reconnects
     stop_reconnect_timer();
 
+    // New explicit connect clears a previous forget so defaults matter no more
+    // (stored NVS creds take precedence from here on).
+    wifi_set_forgotten(false);
+
     wifi_connecting = true;
 
     wifi_credentials_t *creds = malloc(sizeof(wifi_credentials_t));
@@ -415,6 +563,10 @@ void wifi_stop_sta_connection(void)
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
     }
+
+    // Remember the explicit forget so build-time defaults stay dormant
+    // across reboots until the user connects again.
+    wifi_set_forgotten(true);
 
     // Restart in AP mode
     setup_apsta();

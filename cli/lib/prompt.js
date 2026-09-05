@@ -163,4 +163,35 @@ function selectFromList(prompt, options, fallbackAsk = askQuestion) {
   })
 }
 
-module.exports = { askQuestion, selectFromList }
+function askPassword(question) {
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY)
+  if (!tty) {
+    return askQuestion(question)
+  }
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    })
+    // Mute everything EXCEPT the first write (the question itself).
+    // rl.question() renders its prompt via _writeToOutput, so muting
+    // unconditionally swallows the question too and the user sees nothing.
+    const originalWrite = rl._writeToOutput.bind(rl)
+    let firstWrite = true
+    rl._writeToOutput = (str) => {
+      if (firstWrite) {
+        firstWrite = false
+        originalWrite(str)
+      }
+    }
+    rl.question(`${colors.cyan}? ${question}${colors.reset} `, (answer) => {
+      rl.close()
+      // Move to next line since Enter was swallowed too.
+      process.stdout.write('\n')
+      resolve(answer.trim())
+    })
+  })
+}
+
+module.exports = { askQuestion, askPassword, selectFromList }

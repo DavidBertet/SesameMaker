@@ -3,21 +3,20 @@
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
 import { createRequire } from 'node:module'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const {
   generateOtaPassword,
-  readStoredPassword,
-  writeStoredPassword,
+  readSecretsPassword,
   resolveOtaPassword,
   escapeCString,
   injectOtaPassword,
 } = require('./password.js')
 
-function tempFile(t, name = 'store', content = null) {
+function tempFile(t, name = 'secrets.h', content = null) {
   const dir = mkdtempSync(join(tmpdir(), 'ota-password-'))
   const file = join(dir, name)
   if (content !== null) {
@@ -39,58 +38,54 @@ test('generateOtaPassword is random and C-string safe', () => {
   assert.doesNotMatch(a, /["\\]/)
 })
 
-test('writeStoredPassword then readStoredPassword round-trips', (t) => {
-  const file = tempFile(t)
-  writeStoredPassword('secret123', file)
-  assert.strictEqual(readStoredPassword(file), 'secret123')
+test('readSecretsPassword returns null when file is missing', (t) => {
+  assert.strictEqual(readSecretsPassword(tempFile(t)), null)
 })
 
-test('readStoredPassword returns null when file is missing', (t) => {
-  assert.strictEqual(readStoredPassword(tempFile(t)), null)
+test('readSecretsPassword returns null when no password is baked', (t) => {
+  const file = tempFile(t, 'secrets.h', '#pragma once\n')
+  assert.strictEqual(readSecretsPassword(file), null)
 })
 
-test('readStoredPassword returns null when file is empty', (t) => {
-  const file = tempFile(t, 'store', '\n')
-  assert.strictEqual(readStoredPassword(file), null)
-})
-
-test('resolveOtaPassword uses the provided password and persists it', (t) => {
+test('resolveOtaPassword uses the provided password and bakes it', (t) => {
   const file = tempFile(t)
   const password = resolveOtaPassword('user-pass', file)
   assert.strictEqual(password, 'user-pass')
-  assert.strictEqual(readStoredPassword(file), 'user-pass')
+  assert.strictEqual(readSecretsPassword(file), 'user-pass')
 })
 
-test('resolveOtaPassword reuses a stored password across runs', (t) => {
+test('resolveOtaPassword reuses the baked password across runs', (t) => {
   const file = tempFile(t)
-  writeStoredPassword('persisted', file)
+  injectOtaPassword('persisted', file)
   assert.strictEqual(resolveOtaPassword(null, file), 'persisted')
 })
 
-test('resolveOtaPassword generates and persists when nothing is stored', (t) => {
+test('resolveOtaPassword generates and bakes when nothing is stored', (t) => {
   const file = tempFile(t)
   const first = resolveOtaPassword(null, file)
   assert.strictEqual(first.length, 16)
-  assert.strictEqual(readStoredPassword(file), first)
+  assert.strictEqual(readSecretsPassword(file), first)
   assert.strictEqual(resolveOtaPassword(null, file), first)
 })
 
-test('injectOtaPassword replaces the existing OTA_PASSWORD define', (t) => {
-  const file = tempFile(t, 'constants.h', '#pragma once\n\n#define OTA_PASSWORD "old_password"\n')
+test('injectOtaPassword writes an undef+define block to secrets.h', (t) => {
+  const file = tempFile(t, 'secrets.h', '#pragma once\n\n#define OTA_PASSWORD "old_password"\n')
   injectOtaPassword('new-password', file)
   const content = readFileSync(file, 'utf8')
-  assert.ok(content.includes('#define OTA_PASSWORD "new-password"'))
+  assert.ok(content.includes('#undef OTA_PASSWORD\n#define OTA_PASSWORD "new-password"'))
   assert.ok(!content.includes('old_password'))
 })
 
-test('injectOtaPassword appends the define when missing', (t) => {
-  const file = tempFile(t, 'constants.h', '#pragma once\n')
+test('injectOtaPassword creates secrets.h with DO NOT COMMIT when missing', (t) => {
+  const file = tempFile(t)
   injectOtaPassword('added', file)
-  assert.ok(readFileSync(file, 'utf8').includes('#define OTA_PASSWORD "added"'))
+  const content = readFileSync(file, 'utf8')
+  assert.ok(content.includes('DO NOT COMMIT'))
+  assert.ok(content.includes('#define OTA_PASSWORD "added"'))
 })
 
 test('injectOtaPassword escapes quotes and backslashes', (t) => {
-  const file = tempFile(t, 'constants.h', '#pragma once\n#define OTA_PASSWORD "x"\n')
+  const file = tempFile(t, 'secrets.h', '#pragma once\n#define OTA_PASSWORD "x"\n')
   injectOtaPassword('a"b\\c', file)
   const content = readFileSync(file, 'utf8')
   assert.ok(content.includes('#define OTA_PASSWORD "a\\"b\\\\c"'))

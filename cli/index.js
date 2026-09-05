@@ -8,6 +8,7 @@ const { checkPrerequisites } = require('./lib/prerequisites')
 const { buildFrontend } = require('./lib/frontend')
 const { buildBackendPIO } = require('./lib/pio')
 const { configureBackend } = require('./lib/backend')
+const { configureWifi } = require('./lib/wifi')
 const { uploadToDevice } = require('./lib/upload')
 const { resolveOtaPassword } = require('./lib/password')
 
@@ -26,6 +27,7 @@ async function main() {
     await checkPrerequisites(args)
     if (!args.frontendOnly) {
       await configureBackend(args, otaPassword)
+      await configureWifi(args)
       await buildBackendPIO(args)
     }
     if (!args.backendOnly) {

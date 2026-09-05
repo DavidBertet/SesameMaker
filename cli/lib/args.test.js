@@ -103,3 +103,24 @@ test('--ota without an IP and --serial together are rejected', () => {
   const { exitCode } = parseWithExitStub(['--ota', '--serial'])
   assert.ok(exitCode !== null)
 })
+
+test('--wifi-ssid parses', () => {
+  const { parsed } = parseWithExitStub(['--wifi-ssid', 'MyHome'])
+  assert.equal(parsed.wifiSsid, 'MyHome')
+  assert.equal(parsed.hasWifiSsid, true)
+})
+
+test('--wifi-ssid without a value is rejected', () => {
+  const { exitCode } = parseWithExitStub(['--wifi-ssid'])
+  assert.ok(exitCode !== null)
+})
+
+test('--wifi-ssid with -y is rejected immediately', () => {
+  const { exitCode } = parseWithExitStub(['--wifi-ssid', 'MyHome', '-y'])
+  assert.ok(exitCode !== null)
+})
+
+test('--wifi-ssid over 32 bytes is rejected', () => {
+  const { exitCode } = parseWithExitStub(['--wifi-ssid', 'a'.repeat(33)])
+  assert.ok(exitCode !== null)
+})

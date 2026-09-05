@@ -1,12 +1,18 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
+// OTA password handling. Gitignored secrets.h is the single source of truth:
+// explicit -p wins, otherwise reuse the baked value, otherwise generate one.
+
 const fs = require('fs')
-const path = require('path')
 const crypto = require('crypto')
 
-const DEFAULT_STORAGE_PATH = path.resolve(__dirname, '..', '..', '.ota_password')
-const CONSTANTS_HEADER = path.resolve(__dirname, '..', '..', 'backend', 'src', 'constants.h')
-const OTA_PASSWORD_REGEX = /#define\s+OTA_PASSWORD\s+"[^"]*"/
+const {
+  SECRETS_HEADER,
+  secretsTemplate,
+  upsertSecret,
+  readSecret,
+  escapeCString,
+} = require('./secrets')
 
 function generateOtaPassword(length = 16) {
   return crypto
@@ -15,57 +21,48 @@ function generateOtaPassword(length = 16) {
     .slice(0, length)
 }
 
-function readStoredPassword(storagePath = DEFAULT_STORAGE_PATH) {
+function readSecretsPassword(secretsPath = SECRETS_HEADER) {
   try {
-    const password = fs.readFileSync(storagePath, 'utf8').trim()
+    const password = readSecret(fs.readFileSync(secretsPath, 'utf8'), 'OTA_PASSWORD')
     return password || null
-  } catch (error) {
+  } catch {
     return null
   }
 }
 
-function writeStoredPassword(password, storagePath = DEFAULT_STORAGE_PATH) {
-  fs.mkdirSync(path.dirname(storagePath), { recursive: true })
-  fs.writeFileSync(storagePath, password + '\n', { mode: 0o600 })
-}
-
-function resolveOtaPassword(providedPassword, storagePath = DEFAULT_STORAGE_PATH) {
+function resolveOtaPassword(providedPassword, secretsPath = SECRETS_HEADER) {
   if (providedPassword) {
-    writeStoredPassword(providedPassword, storagePath)
+    injectOtaPassword(providedPassword, secretsPath)
     return providedPassword
   }
-  const stored = readStoredPassword(storagePath)
+  const stored = readSecretsPassword(secretsPath)
   if (stored) {
     return stored
   }
   const generated = generateOtaPassword()
-  writeStoredPassword(generated, storagePath)
+  injectOtaPassword(generated, secretsPath)
   return generated
 }
 
-function escapeCString(value) {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-function injectOtaPassword(password, headerPath = CONSTANTS_HEADER) {
-  const content = fs.readFileSync(headerPath, 'utf8')
-  const escaped = escapeCString(password)
-  let updated
-  if (OTA_PASSWORD_REGEX.test(content)) {
-    updated = content.replace(OTA_PASSWORD_REGEX, `#define OTA_PASSWORD "${escaped}"`)
-  } else {
-    updated = content + `\n#define OTA_PASSWORD "${escaped}"\n`
+function injectOtaPassword(password, headerPath = SECRETS_HEADER) {
+  let content
+  try {
+    content = fs.readFileSync(headerPath, 'utf8')
+  } catch {
+    content = secretsTemplate()
   }
-  fs.writeFileSync(headerPath, updated)
-  return updated !== content
+  const updated = upsertSecret(content, 'OTA_PASSWORD', password)
+  if (updated !== content) {
+    fs.writeFileSync(headerPath, updated)
+    return true
+  }
+  return false
 }
 
 module.exports = {
-  DEFAULT_STORAGE_PATH,
-  CONSTANTS_HEADER,
+  SECRETS_HEADER,
   generateOtaPassword,
-  readStoredPassword,
-  writeStoredPassword,
+  readSecretsPassword,
   resolveOtaPassword,
   escapeCString,
   injectOtaPassword,

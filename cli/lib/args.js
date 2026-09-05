@@ -36,12 +36,28 @@ function validateArgs(parsedArgs) {
     console.error('Error: --upload-password flag requires a password')
     process.exit(1)
   }
+
+  if (parsedArgs.hasWifiSsid && !parsedArgs.wifiSsid) {
+    console.error('Error: --wifi-ssid flag requires an SSID')
+    process.exit(1)
+  }
+
+  if (parsedArgs.hasWifiSsid && parsedArgs.autoYes) {
+    console.error('Error: --wifi-ssid needs an interactive password prompt (remove -y/--yes)')
+    process.exit(1)
+  }
+
+  if (parsedArgs.wifiSsid && Buffer.byteLength(parsedArgs.wifiSsid, 'utf8') > 32) {
+    console.error('Error: --wifi-ssid must be at most 32 bytes')
+    process.exit(1)
+  }
 }
 
 function parseArgs() {
   const args = process.argv.slice(2)
   const otaIndex = args.findIndex((arg) => arg === '-o' || arg === '--ota')
   const passwordIndex = args.findIndex((arg) => arg === '-p' || arg === '--upload-password')
+  const wifiSsidIndex = args.findIndex((arg) => arg === '--wifi-ssid')
 
   // Discovery replaces needing to know the device IP:
   //   • --ota <IP>          → direct OTA to that IP (no discovery)
@@ -70,6 +86,8 @@ function parseArgs() {
     backendOnly: args.includes('-b') || args.includes('--backend-only'),
     hasUploadPassword: passwordIndex !== -1,
     uploadPassword: passwordIndex !== -1 ? getParameterValue(args, passwordIndex) : null,
+    wifiSsid: wifiSsidIndex !== -1 ? getParameterValue(args, wifiSsidIndex) : null,
+    hasWifiSsid: wifiSsidIndex !== -1,
     debug: args.includes('-d') || args.includes('--debug'),
     args: args,
   }

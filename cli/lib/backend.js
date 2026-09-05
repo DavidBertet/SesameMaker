@@ -11,7 +11,7 @@ async function configureBackend(args, otaPassword) {
   logger.separator()
 
   if (otaPassword) {
-    injectOtaPassword(otaPassword, path.resolve('backend/src/constants.h'))
+    injectOtaPassword(otaPassword)
     logger.info(`OTA password configured (${otaPassword.length} characters)`)
   }
 

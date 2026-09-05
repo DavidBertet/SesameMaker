@@ -20,5 +20,3 @@ hardware/.mcp-backups/
 hardware/*.kicad_prl
 hardware/~*.lck
 hardware/*.zip
-
-.ota_password

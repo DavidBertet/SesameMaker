@@ -2,6 +2,16 @@
 
 #define OTA_PASSWORD "your_secure_password_here"
 
+// Build-time WiFi defaults (empty placeholders; real secrets live in
+// gitignored secrets.h, written by `install.sh --wifi-ssid`).
+#define DEFAULT_WIFI_SSID ""
+#define DEFAULT_WIFI_PASSWORD ""
+#define DEFAULT_WIFI_GEN ""
+
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
 // ==== SesameMaker: GPIO pins ====
 // secplus1 wall bus (1200 baud 8E1 half duplex) via interface circuit:
 // TX: open-collector driver (NPN/optocoupler) pulling the wall line low
