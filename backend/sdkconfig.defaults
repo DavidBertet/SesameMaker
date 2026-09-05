@@ -1,12 +1,22 @@
 # Required for the WebSocket interface (frontend <-> backend).
 CONFIG_HTTPD_WS_SUPPORT=y
 
+# Custom partition table (factory + OTA + SPIFFS storage).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_custom.csv"
+
+# MQTT client (publish air quality readings).
+CONFIG_MQTT_PROTOCOL_311=y
+
+# Socket budget: httpd takes up to max_open_sockets (10) + control socket,
+# MQTT holds 1-2, browsers open 6+ parallel conns per tab. Default 10
+# starves accept() with ENFILE as soon as a page loads.
+CONFIG_LWIP_MAX_SOCKETS=16
+
 # Size-optimized build so the app fits the OTA slots on 2MB flash.
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
 # Disable assertions to reclaim flash (kept INFO console logs).
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
 
-# Custom partition table (factory + OTA + SPIFFS storage).
-CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_custom.csv"
+

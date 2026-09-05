@@ -110,6 +110,146 @@ test('looksLikeEsp rejects unrelated VIDs and missing hwid', () => {
   assert.equal(d.looksLikeEsp(undefined), false)
 })
 
+test('dedupeUsbDevices collapses macOS cu/tty aliases, preferring cu', () => {
+  const d = loadDiscover()
+  const devices = [
+    { port: '/dev/tty.usbserial-0001', hwid: 'USB VID:PID=10c4:ea60', description: '' },
+    { port: '/dev/cu.usbserial-0001', hwid: 'USB VID:PID=10c4:ea60', description: '' },
+    { port: '/dev/cu.SLAB_USBtoUART', hwid: 'USB VID:PID=10c4:ea60', description: '' },
+    { port: '/dev/tty.SLAB_USBtoUART', hwid: 'USB VID:PID=10c4:ea60', description: '' },
+  ]
+  const result = d.dedupeUsbDevices(devices)
+  assert.deepEqual(
+    result.map((x) => x.port),
+    ['/dev/cu.usbserial-0001', '/dev/cu.SLAB_USBtoUART'],
+  )
+})
+
+test('dedupeUsbDevices merges driver synonyms with same SER+LOCATION', () => {
+  const d = loadDiscover()
+  const hwid = 'USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-1'
+  const devices = [
+    { port: '/dev/cu.usbserial-0001', hwid, description: 'CP2102 USB to UART Bridge Controller' },
+    { port: '/dev/cu.SLAB_USBtoUART', hwid, description: 'CP2102 USB to UART Bridge Controller' },
+  ]
+  const result = d.dedupeUsbDevices(devices)
+  // Same chip, same USB port: one entry, preferring the name with the SER.
+  assert.deepEqual(
+    result.map((x) => x.port),
+    ['/dev/cu.usbserial-0001'],
+  )
+})
+
+test('dedupeUsbDevices keeps two identical-model boards on different USB ports', () => {
+  const d = loadDiscover()
+  const devices = [
+    { port: '/dev/cu.usbserial-0001', hwid: 'USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-1' },
+    { port: '/dev/cu.usbserial-0002', hwid: 'USB VID:PID=10C4:EA60 SER=0002 LOCATION=1-2' },
+  ]
+  assert.equal(d.dedupeUsbDevices(devices).length, 2)
+})
+
+test('dedupeUsbDevices does not merge same VID:PID without SER/LOCATION', () => {
+  const d = loadDiscover()
+  const devices = [
+    { port: '/dev/cu.usbserial-0001', hwid: 'USB VID:PID=10c4:ea60' },
+    { port: '/dev/cu.SLAB_USBtoUART', hwid: 'USB VID:PID=10c4:ea60' },
+  ]
+  // No hardware truth available: keep both rather than risk hiding a board.
+  assert.equal(d.dedupeUsbDevices(devices).length, 2)
+})
+
+test('parseHwidIdentity extracts VID/PID/SER/LOCATION', () => {
+  const d = loadDiscover()
+  assert.deepEqual(d.parseHwidIdentity('USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-1'), {
+    vid: '10c4',
+    pid: 'ea60',
+    ser: '0001',
+    location: '1-1',
+  })
+  assert.deepEqual(d.parseHwidIdentity('USB VID:PID=10c4:ea60'), {
+    vid: '10c4',
+    pid: 'ea60',
+    ser: '',
+    location: '',
+  })
+  assert.equal(d.parseHwidIdentity(''), null)
+  assert.equal(d.parseHwidIdentity(undefined), null)
+})
+
+test('dedupeUsbDevices keeps distinct Linux ports and exact duplicates collapse', () => {
+  const d = loadDiscover()
+  assert.deepEqual(
+    d
+      .dedupeUsbDevices([{ port: '/dev/ttyUSB0' }, { port: '/dev/ttyACM0' }])
+      .map((x) => x.port),
+    ['/dev/ttyUSB0', '/dev/ttyACM0'],
+  )
+  assert.deepEqual(d.dedupeUsbDevices([{ port: 'COM3' }, { port: 'COM3' }]).map((x) => x.port), [
+    'COM3',
+  ])
+})
+
+test('discoverUsbDevices dedupes cu/tty pairs from pio output', async () => {
+  const origExec = require('./system').execPromise
+  const origFind = require('./pio').findPIOExecutable
+  try {
+    require('./pio').findPIOExecutable = async () => 'pio'
+    require('./system').execPromise = async () => ({
+      stdout: `
+/dev/cu.usbserial-0001
+---------------------
+HwID: USB VID:PID=10c4:ea60
+Description: CP210x UART Bridge
+
+/dev/tty.usbserial-0001
+-----------------------
+HwID: USB VID:PID=10c4:ea60
+Description: CP210x UART Bridge
+`,
+    })
+    const d = loadDiscover()
+    const result = await d.discoverUsbDevices()
+    assert.deepEqual(
+      result.map((x) => x.port),
+      ['/dev/cu.usbserial-0001'],
+    )
+  } finally {
+    require('./system').execPromise = origExec
+    require('./pio').findPIOExecutable = origFind
+  }
+})
+
+test('discoverUsbDevices merges same-chip driver synonyms from pio output', async () => {
+  const origExec = require('./system').execPromise
+  const origFind = require('./pio').findPIOExecutable
+  try {
+    require('./pio').findPIOExecutable = async () => 'pio'
+    require('./system').execPromise = async () => ({
+      stdout: `
+/dev/cu.usbserial-0001
+----------------------
+Hardware ID: USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-1
+Description: CP2102 USB to UART Bridge Controller
+
+/dev/cu.SLAB_USBtoUART
+----------------------
+Hardware ID: USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-1
+Description: CP2102 USB to UART Bridge Controller
+`,
+    })
+    const d = loadDiscover()
+    const result = await d.discoverUsbDevices()
+    assert.deepEqual(
+      result.map((x) => x.port),
+      ['/dev/cu.usbserial-0001'],
+    )
+  } finally {
+    require('./system').execPromise = origExec
+    require('./pio').findPIOExecutable = origFind
+  }
+})
+
 test('discoverUsbDevices keeps ESP ports and falls back to all when none match', async () => {
   const origExec = require('./system').execPromise
   const origFind = require('./pio').findPIOExecutable

@@ -354,7 +354,7 @@ function parseDeviceList(output) {
     if (!current) {
       continue
     }
-    const hwidMatch = line.match(/^HwID:\s*(.*)$/i)
+    const hwidMatch = line.match(/^HwID:\s*(.*)$/i) || line.match(/^Hardware ID:\s*(.*)$/i)
     if (hwidMatch) {
       current.hwid = hwidMatch[1].trim()
       continue
@@ -369,6 +369,101 @@ function parseDeviceList(output) {
   return devices
 }
 
+// Extract the hardware identity of a USB serial device from its pio HwID
+// string, e.g. "USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-1" ->
+// { vid: '10c4', pid: 'ea60', ser: '0001', location: '1-1' }. Missing fields
+// become ''. Returns null when there is no usable identity at all (no VID:PID
+// and no SER/LOCATION), in which case the entry can't be matched to hardware.
+function parseHwidIdentity(hwid) {
+  const s = String(hwid || '')
+  const vidPid = s.match(/VID:PID=([0-9a-fA-F]{4}):([0-9a-fA-F]{4})/)
+  const ser = s.match(/\bSER=([^\s]+)/i)
+  const location = s.match(/\bLOCATION=([^\s]+)/i)
+  const vid = vidPid ? vidPid[1].toLowerCase() : ''
+  const pid = vidPid ? vidPid[2].toLowerCase() : ''
+  const serVal = ser ? ser[1] : ''
+  const locVal = location ? location[1].toLowerCase() : ''
+  if (!vidPid && !serVal && !locVal) {
+    return null
+  }
+  return { vid, pid, ser: serVal, location: locVal }
+}
+
+// Prefer the most useful /dev name when several point at the same hardware:
+// a name containing the USB serial number (e.g. usbserial-0001 for SER=0001)
+// beats a generic driver name (e.g. SLAB_USBtoUART, which is identical for
+// every CP210x board and ambiguous with 2+ boards plugged in). Otherwise
+// prefer cu.* over tty.* (correct for flashing), then the longer name.
+function preferUsbPort(a, b, ser = '') {
+  const serLower = String(ser || '').toLowerCase()
+  if (serLower) {
+    const aHas = String(a.port || '')
+      .toLowerCase()
+      .includes(serLower)
+    const bHas = String(b.port || '')
+      .toLowerCase()
+      .includes(serLower)
+    if (aHas !== bHas) {
+      return bHas ? b : a
+    }
+  }
+  const aCu = /^\/dev\/cu\./.test(a.port)
+  const bCu = /^\/dev\/cu\./.test(b.port)
+  if (aCu !== bCu) {
+    return bCu ? b : a
+  }
+  return String(b.port || '').length > String(a.port || '').length ? b : a
+}
+
+// Collapse duplicate /dev names for the same physical USB device so the
+// picker lists each board once. Two alias mechanisms exist on macOS:
+//   1. cu/tty dial-in pair: /dev/cu.X + /dev/tty.X (same suffix, same hw).
+//   2. driver synonyms: /dev/cu.usbserial-0001 + /dev/cu.SLAB_USBtoUART —
+//      different names, but identical HwID incl. SER + LOCATION (same chip,
+//      same USB port). LOCATION/SER is the hardware truth here, not the name.
+// Entries are grouped by (VID:PID + SER + LOCATION) when at least SER or
+// LOCATION is present; grouping by VID:PID alone would wrongly merge distinct
+// boards with the same bridge chip. Entries without SER/LOCATION (older pio
+// format, Bluetooth, etc.) only dedupe on exact-port or cu/tty-suffix match.
+// Linux ports (/dev/ttyUSB0, /dev/ttyACM0, ...) have distinct suffixes and
+// distinct LOCATIONs, so distinct boards are never merged.
+function dedupeUsbDevices(devices) {
+  const byHw = new Map() // hw identity key -> device
+  const byAlias = new Map() // fallback key -> device
+  const hwKeyOf = (d) => {
+    const id = parseHwidIdentity(d && d.hwid)
+    if (!id || (!id.ser && !id.location)) {
+      return null
+    }
+    return `hw:${id.vid}:${id.pid}:${id.ser}:${id.location}`
+  }
+  const aliasKeyOf = (d) => {
+    const port = (d && d.port) || ''
+    const m = port.match(/^\/dev\/(cu|tty)\.(.*)$/)
+    return m ? `macos:${m[2]}` : `port:${port}`
+  }
+  for (const d of devices) {
+    const hwKey = hwKeyOf(d)
+    if (hwKey) {
+      const existing = byHw.get(hwKey)
+      if (!existing) {
+        byHw.set(hwKey, d)
+      } else {
+        const id = parseHwidIdentity(d.hwid)
+        byHw.set(hwKey, preferUsbPort(existing, d, id && id.ser))
+      }
+      continue
+    }
+    const key = aliasKeyOf(d)
+    const existing = byAlias.get(key)
+    if (!existing) {
+      byAlias.set(key, d)
+    } else {
+      byAlias.set(key, preferUsbPort(existing, d))
+    }
+  }
+  return [...byHw.values(), ...byAlias.values()]
+}
 // Best-effort guess that a USB serial device is an ESP dev board by checking
 // the USB VID of its UART-bridge chip. Returns true for known CP210x (10c4),
 // CH340/CH9102 (1a86) and FTDI (0403) bridges; false otherwise. Missing/unused
@@ -390,8 +485,8 @@ async function discoverUsbDevices() {
   const devices = parseDeviceList(stdout)
   // Keep only serial port candidates that look like something usable on macOS/
   // Linux (cu/tty) or Windows (COM). Filter out parallel/other entries.
-  const serial = devices.filter(
-    (d) => /^\/dev\/(?:tty|cu)\./.test(d.port) || /^COM\d+$/i.test(d.port),
+  const serial = dedupeUsbDevices(
+    devices.filter((d) => /^\/dev\/(?:tty|cu)\./.test(d.port) || /^COM\d+$/i.test(d.port)),
   )
   // Prefer ports whose UART-bridge VID matches a known ESP dev board. If that
   // leaves nothing, fall back to every serial port so we never miss a device
@@ -476,6 +571,8 @@ module.exports = {
   probeAll,
   discoverNetworkDevices,
   parseDeviceList,
+  parseHwidIdentity,
+  dedupeUsbDevices,
   looksLikeEsp,
   ESP_USB_BRIDGE_VIDS,
   discoverUsbDevices,
