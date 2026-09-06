@@ -1,6 +1,6 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-import { shouldQueueMessage } from 'src/lib/wsqueue.js'
+import { shouldQueueMessage, drainQueue } from 'src/lib/wsqueue.js'
 
 if (import.meta.env.MODE === 'github') {
   // Import mock only in github build
@@ -120,10 +120,13 @@ export function connectWebSocket(wsUrl) {
     console.log('WebSocket: Connected')
     wsState.isConnected = true
 
-    // Send all queued messages
-    while (messageQueue.length > 0) {
-      ws.send(JSON.stringify(messageQueue.shift()))
+    // Replay the backlog collapsed to the last of each type: a 2 s poller
+    // queues dozens of identical reads while down, and only the newest
+    // one matters (see drainQueue).
+    for (const msg of drainQueue(messageQueue)) {
+      ws.send(JSON.stringify(msg))
     }
+    messageQueue = []
 
     // Start ping-pong mechanism by scheduling the first ping
     schedulePing()

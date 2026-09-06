@@ -19,3 +19,16 @@ const NON_QUEUABLE_TYPES = new Set([
 export function shouldQueueMessage(msg) {
   return Boolean(msg && msg.type && !NON_QUEUABLE_TYPES.has(msg.type))
 }
+
+// Collapse a reconnect backlog to the last message of each type, ordered by
+// last occurrence. A 2 s poller (get_garage_raw) queues dozens of identical
+// reads during an outage; replaying all of them floods the backend, while
+// only the newest one matters. Actuation commands never reach the queue
+// (blocklist above), so collapsing reads here can't replay a stale toggle.
+export function drainQueue(queue) {
+  const lastIndex = new Map()
+  queue.forEach((msg, i) => {
+    if (msg && msg.type) lastIndex.set(msg.type, i)
+  })
+  return [...lastIndex.entries()].sort((a, b) => a[1] - b[1]).map(([, i]) => queue[i])
+}
