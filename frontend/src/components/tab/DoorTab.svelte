@@ -70,16 +70,20 @@
     waiting: 'Detecting wall panel…',
     detected: 'Wall panel detected',
     emulated: 'Emulating wall panel',
+    none: 'No wall panel (relay mode)',
+  }
+
+  const protocolLabel = {
+    secplus1: 'Security+ 1.0',
+    drycontact: 'Dry contact',
+    secplus2: 'Security+ 2.0',
   }
 </script>
 
-<SectionHeader
-  title="Garage Door"
-  subtitle="Security+ 1.0 wall bus - open, close and watch your door."
-/>
+<SectionHeader title="Garage Door" subtitle="Open, close and watch your door." />
 
 <div class="space-y-6">
-  {#if garageState.obstruction}
+  {#if garageState.caps.obstruction && garageState.obstruction}
     <div
       class="flex items-center gap-3 rounded-lg border border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950 p-4"
     >
@@ -121,91 +125,118 @@
       <div class="mt-4 flex flex-wrap items-center gap-2">
         <Badge class={badgeColor[meta.color]}>{meta.label}</Badge>
         <Badge variant="secondary">{panelLabel[garageState.panel]}</Badge>
+        <Badge variant="outline"
+          >{protocolLabel[garageState.protocol] ?? garageState.protocol}</Badge
+        >
       </div>
       <p class="mt-2 text-sm text-muted-foreground">{statusDetail}</p>
 
       <div class="mt-6 flex flex-wrap gap-3">
-        <Button size="lg" class="min-w-36" onclick={() => doorCommand(primaryAction.action)}>
-          <primaryAction.icon class="size-4" />
-          {primaryAction.label}
-        </Button>
+        {#if !moving && garageState.door === 'stopped'}
+          <!-- Mid-travel stop: the next toggle can go either way, so offer
+            both. The backend pursues the target (chained toggles on secplus,
+            pulse on dry-contact) until the door gets there. -->
+          <Button size="lg" class="min-w-36" onclick={() => doorCommand('open')}>
+            <DoorOpen class="size-4" />
+            Open
+          </Button>
+          <Button size="lg" class="min-w-36" onclick={() => doorCommand('close')}>
+            <DoorClosed class="size-4" />
+            Close
+          </Button>
+        {:else}
+          <Button size="lg" class="min-w-36" onclick={() => doorCommand(primaryAction.action)}>
+            <primaryAction.icon class="size-4" />
+            {primaryAction.label}
+          </Button>
+        {/if}
       </div>
     </Card.Content>
   </Card.Root>
 
   <div class="grid gap-6 md:grid-cols-2">
-    <Card.Root>
-      <Card.Header class="pb-3">
-        <Card.Title class="text-lg flex items-center gap-2">
-          <Lightbulb class="size-4" />
-          Light
-        </Card.Title>
-        <Card.Description>Opener light via the wall bus</Card.Description>
-      </Card.Header>
-      <Card.Content class="space-y-4">
-        <div class="flex items-center justify-between">
-          <Label>Current state</Label>
-          <Badge variant="secondary">{garageState.light}</Badge>
-        </div>
-        <div class="flex gap-3">
-          <LoadingButton
-            class="flex-1 {garageState.light === 'on' ? 'disabled:opacity-100' : ''}"
-            variant={garageState.light === 'on' ? 'default' : 'outline'}
-            disabled={pendingCommands.light !== null || garageState.light === 'on'}
-            loading={pendingCommands.light === 'on'}
-            onclick={() => lightCommand('on')}
-          >
-            On
-          </LoadingButton>
-          <LoadingButton
-            class="flex-1 {garageState.light === 'off' ? 'disabled:opacity-100' : ''}"
-            variant={garageState.light === 'off' ? 'default' : 'outline'}
-            disabled={pendingCommands.light !== null || garageState.light === 'off'}
-            loading={pendingCommands.light === 'off'}
-            onclick={() => lightCommand('off')}
-          >
-            Off
-          </LoadingButton>
-        </div>
-      </Card.Content>
-    </Card.Root>
+    {#if garageState.caps.light}
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-lg flex items-center gap-2">
+            <Lightbulb class="size-4" />
+            Light
+          </Card.Title>
+          <Card.Description>Opener light via the wall bus</Card.Description>
+        </Card.Header>
+        <Card.Content class="space-y-4">
+          <div class="flex items-center justify-between">
+            <Label>Current state</Label>
+            <Badge variant="secondary">{garageState.light}</Badge>
+          </div>
+          <div class="flex gap-3">
+            <LoadingButton
+              class="flex-1 {garageState.light === 'on' ? 'disabled:opacity-100' : ''}"
+              variant={garageState.light === 'on' ? 'default' : 'outline'}
+              disabled={pendingCommands.light !== null || garageState.light === 'on'}
+              loading={pendingCommands.light === 'on'}
+              onclick={() => lightCommand('on')}
+            >
+              On
+            </LoadingButton>
+            <LoadingButton
+              class="flex-1 {garageState.light === 'off' ? 'disabled:opacity-100' : ''}"
+              variant={garageState.light === 'off' ? 'default' : 'outline'}
+              disabled={pendingCommands.light !== null || garageState.light === 'off'}
+              loading={pendingCommands.light === 'off'}
+              onclick={() => lightCommand('off')}
+            >
+              Off
+            </LoadingButton>
+          </div>
+        </Card.Content>
+      </Card.Root>
+    {/if}
 
-    <Card.Root>
-      <Card.Header class="pb-3">
-        <Card.Title class="text-lg flex items-center gap-2">
-          <Lock class="size-4" />
-          Remote lock
-        </Card.Title>
-        <Card.Description>Locks out wireless remotes</Card.Description>
-      </Card.Header>
-      <Card.Content class="space-y-4">
-        <div class="flex items-center justify-between">
-          <Label>Current state</Label>
-          <Badge variant="secondary">{garageState.locked}</Badge>
-        </div>
-        <div class="flex gap-3">
-          <LoadingButton
-            class="flex-1 {garageState.locked === 'locked' ? 'disabled:opacity-100' : ''}"
-            variant={garageState.locked === 'locked' ? 'default' : 'outline'}
-            disabled={pendingCommands.lock !== null || garageState.locked === 'locked'}
-            loading={pendingCommands.lock === 'lock'}
-            icon={Lock}
-            onclick={() => lockCommand('lock')}
-          >
-            Lock
-          </LoadingButton>
-          <LoadingButton
-            class="flex-1 {garageState.locked === 'unlocked' ? 'disabled:opacity-100' : ''}"
-            variant={garageState.locked === 'unlocked' ? 'default' : 'outline'}
-            disabled={pendingCommands.lock !== null || garageState.locked === 'unlocked'}
-            loading={pendingCommands.lock === 'unlock'}
-            icon={LockOpen}
-            onclick={() => lockCommand('unlock')}
-          >
-            Unlock
-          </LoadingButton>
-        </div>
-      </Card.Content>
-    </Card.Root>
+    {#if garageState.caps.lock}
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-lg flex items-center gap-2">
+            <Lock class="size-4" />
+            Remote lock
+          </Card.Title>
+          <Card.Description>Locks out wireless remotes</Card.Description>
+        </Card.Header>
+        <Card.Content class="space-y-4">
+          <div class="flex items-center justify-between">
+            <Label>Current state</Label>
+            <Badge variant="secondary">{garageState.locked}</Badge>
+          </div>
+          <div class="flex gap-3">
+            <LoadingButton
+              class="flex-1 {garageState.locked === 'locked' ? 'disabled:opacity-100' : ''}"
+              variant={garageState.locked === 'locked' ? 'default' : 'outline'}
+              disabled={pendingCommands.lock !== null || garageState.locked === 'locked'}
+              loading={pendingCommands.lock === 'lock'}
+              icon={Lock}
+              onclick={() => lockCommand('lock')}
+            >
+              Lock
+            </LoadingButton>
+            <LoadingButton
+              class="flex-1 {garageState.locked === 'unlocked' ? 'disabled:opacity-100' : ''}"
+              variant={garageState.locked === 'unlocked' ? 'default' : 'outline'}
+              disabled={pendingCommands.lock !== null || garageState.locked === 'unlocked'}
+              loading={pendingCommands.lock === 'unlock'}
+              icon={LockOpen}
+              onclick={() => lockCommand('unlock')}
+            >
+              Unlock
+            </LoadingButton>
+          </div>
+        </Card.Content>
+      </Card.Root>
+    {/if}
   </div>
+  {#if !garageState.caps.light && !garageState.caps.lock}
+    <p class="text-sm text-muted-foreground">
+      Dry-contact mode drives the opener through a relay only — light and lock controls are not
+      available.
+    </p>
+  {/if}
 </div>

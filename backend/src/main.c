@@ -21,9 +21,11 @@
 #include "ws_wifi.h"
 #include "ws_settings.h"
 #include "ws_garage.h"
+#include "ws_protocol.h"
 #include "ws_log.h"
 
 #include "garage_controller.h"
+#include "protocol_registry.h"
 #include "mqtt.h"
 
 static const char *TAG = "main";
@@ -33,11 +35,16 @@ static const char *TAG = "main";
 // bootloader window where a floating base could key Q1 and the opener
 // would read a door-button press. Power cycles still need the base
 // pulldown resistor on the board - hold state is lost when power drops.
+// The dry-contact relay GPIO is held low for the same reason: a floating
+// relay driver at boot reads as a button press to a dumb opener.
 static void hold_garage_tx_low(void)
 {
   gpio_set_direction(GARAGE_TX_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_level(GARAGE_TX_GPIO, 0);
   gpio_hold_en(GARAGE_TX_GPIO);
+  gpio_set_direction(DRY_RELAY_GPIO, GPIO_MODE_OUTPUT);
+  gpio_set_level(DRY_RELAY_GPIO, 0);
+  gpio_hold_en(DRY_RELAY_GPIO);
 }
 
 void app_main()
@@ -48,10 +55,14 @@ void app_main()
   // TX line idle from the very first instruction. Until garage_uart_init()
   // routes the pin, GPIO4 floats during boot/wifi init and can pull the
   // wall line low -> the opener reads a door-button press and toggles the
-  // door. Drive the NPN base low so the bus stays high.
+  // door. Drive the NPN base low so the bus stays high. Same for the
+  // dry-contact relay driver so boot never reads as a press.
   gpio_hold_dis(GARAGE_TX_GPIO);
   gpio_set_direction(GARAGE_TX_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_level(GARAGE_TX_GPIO, 0);
+  gpio_hold_dis(DRY_RELAY_GPIO);
+  gpio_set_direction(DRY_RELAY_GPIO, GPIO_MODE_OUTPUT);
+  gpio_set_level(DRY_RELAY_GPIO, 0);
 
   // Init NVS storage
   setup_storage();
@@ -74,6 +85,7 @@ void app_main()
   setup_server();
 
   // Init hardware
+  ESP_ERROR_CHECK(protocol_registry_init());
   ESP_ERROR_CHECK(garage_controller_init());
 
   // Register websocket callbacks
@@ -92,6 +104,9 @@ void app_main()
   register_callback("lock_command", ws_handle_garage_lock_command);
   register_callback("get_garage_raw", ws_handle_get_garage_raw);
   register_callback("garage_sync", ws_handle_garage_sync);
+
+  register_callback("get_protocol", ws_handle_get_protocol);
+  register_callback("set_protocol", ws_handle_set_protocol);
 
   register_callback("get_mqtt_config", ws_handle_get_mqtt_config);
   register_callback("set_mqtt_config", ws_handle_set_mqtt_config);

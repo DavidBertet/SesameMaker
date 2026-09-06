@@ -31,6 +31,15 @@ test('isSettled distinguishes moving from settled doors', () => {
 
 test('parseGarageStatus fills defaults for missing fields', () => {
   assert.deepEqual(parseGarageStatus({}), {
+    protocol: 'secplus1',
+    caps: {
+      light: true,
+      lock: true,
+      obstruction: true,
+      motion: true,
+      panel: true,
+      sensors: false,
+    },
     door: 'unknown',
     moving: false,
     light: 'unknown',
@@ -38,28 +47,44 @@ test('parseGarageStatus fills defaults for missing fields', () => {
     obstruction: false,
     motion: false,
     panel: 'waiting',
+    sensors: { open: false, close: false, valid: false },
   })
-  assert.deepEqual(
-    parseGarageStatus({
-      door: 'open',
-      light: 'on',
-      locked: 'locked',
-      panel: 'detected',
-    }),
-    {
-      door: 'open',
-      moving: false,
-      light: 'on',
-      locked: 'locked',
-      obstruction: false,
-      motion: false,
-      panel: 'detected',
-    },
-  )
+  const secplus = parseGarageStatus({
+    door: 'open',
+    light: 'on',
+    locked: 'locked',
+    panel: 'detected',
+  })
+  assert.equal(secplus.protocol, 'secplus1')
+  assert.equal(secplus.caps.light, true)
+  assert.equal(secplus.panel, 'detected')
   // Garbage values fall back to unknown instead of poisoning the store.
   const parsed = parseGarageStatus({ door: 'warp', light: 42 })
   assert.equal(parsed.door, 'unknown')
   assert.equal(parsed.light, 'unknown')
+})
+
+test('parseGarageStatus derives dry-contact caps by protocol', () => {
+  const dry = parseGarageStatus({ protocol: 'drycontact', panel: 'none' })
+  assert.equal(dry.protocol, 'drycontact')
+  assert.equal(dry.caps.light, false)
+  assert.equal(dry.caps.lock, false)
+  assert.equal(dry.caps.sensors, true)
+  assert.equal(dry.panel, 'none')
+  // Explicit caps from a new backend always win over the default.
+  const explicit = parseGarageStatus({
+    protocol: 'drycontact',
+    caps: {
+      light: false,
+      lock: false,
+      obstruction: false,
+      motion: false,
+      panel: false,
+      sensors: true,
+    },
+    sensors: { open: false, close: true, valid: true },
+  })
+  assert.deepEqual(explicit.sensors, { open: false, close: true, valid: true })
 })
 
 test('decodeByte names known secplus1 command bytes', () => {

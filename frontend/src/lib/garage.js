@@ -47,16 +47,51 @@ export function optimisticLock(action, pending) {
   return action === 'lock' ? 'locked' : 'unlocked'
 }
 
+export const PROTOCOLS = ['secplus1', 'drycontact', 'secplus2']
+
+// Full Sec1 caps: assumed when an older firmware omits the caps object so
+// existing units keep rendering light/lock/panel after an OTA mismatch.
+export const FULL_CAPS = {
+  light: true,
+  lock: true,
+  obstruction: true,
+  motion: true,
+  panel: true,
+  sensors: false,
+}
+
+export const DRY_CAPS = {
+  light: false,
+  lock: false,
+  obstruction: false,
+  motion: false,
+  panel: false,
+  sensors: true,
+}
+
 // Normalize an incoming garage_status payload into the store shape.
 export function parseGarageStatus(data = {}) {
+  // Caps default by protocol when the backend omits them (old firmware =
+  // full Sec1). The UI only ever reads caps, never the protocol id.
+  const rawCaps = data.caps ?? (data.protocol === 'drycontact' ? DRY_CAPS : FULL_CAPS)
+  const caps = { ...FULL_CAPS, ...rawCaps }
   return {
+    protocol: PROTOCOLS.includes(data.protocol) ? data.protocol : 'secplus1',
+    caps,
     door: DOOR_STATES.includes(data.door) ? data.door : 'unknown',
     moving: data.moving === true,
     light: ['on', 'off', 'unknown'].includes(data.light) ? data.light : 'unknown',
     locked: ['locked', 'unlocked', 'unknown'].includes(data.locked) ? data.locked : 'unknown',
     obstruction: data.obstruction === true,
     motion: data.motion === true,
-    panel: ['waiting', 'detected', 'emulated'].includes(data.panel) ? data.panel : 'waiting',
+    panel: ['waiting', 'detected', 'emulated', 'none'].includes(data.panel)
+      ? data.panel
+      : 'waiting',
+    sensors: {
+      open: data.sensors?.open === true,
+      close: data.sensors?.close === true,
+      valid: data.sensors?.valid === true,
+    },
   }
 }
 

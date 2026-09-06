@@ -6,8 +6,8 @@
 #include "garage_uart.h"
 #include "mqtt.h"
 #include "raw_json.h"
-#include "secplus1.h"
 
+#include "esp_err.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,33 +25,8 @@ static void send_error(const char *message)
 void ws_handle_get_garage_status(const cJSON *root, int sockfd)
 {
     ESP_LOGI(TAG, "get_garage_status");
-    char json[320];
-    garage_state_t st;
-    if (garage_controller_get_state(&st) != ESP_OK)
-    {
-        send_error("Failed to read garage state");
-        return;
-    }
-    snprintf(json, sizeof(json),
-             "{\"type\":\"garage_status\","
-             "\"door\":\"%s\",\"moving\":%s,"
-             "\"light\":\"%s\",\"locked\":\"%s\","
-             "\"obstruction\":%s,\"motion\":%s,"
-             "\"panel\":\"%s\"}",
-             secplus1_door_state_str(st.door_state),
-             st.door_moving ? "true" : "false",
-             st.light_state == GARAGE_LIGHT_ON
-                 ? "on"
-                 : st.light_state == GARAGE_LIGHT_OFF ? "off" : "unknown",
-             st.lock_state == GARAGE_LOCK_LOCKED
-                 ? "locked"
-                 : st.lock_state == GARAGE_LOCK_UNLOCKED ? "unlocked" : "unknown",
-             st.obstruction ? "true" : "false",
-             st.motion ? "true" : "false",
-             st.panel_mode == GARAGE_PANEL_DETECTED
-                 ? "detected"
-             : st.panel_mode == GARAGE_PANEL_EMULATING ? "emulated"
-                                                       : "waiting");
+    char json[512];
+    garage_controller_get_status_json(json, sizeof(json));
     send_message_sockfd(json, sockfd);
 }
 
@@ -66,7 +41,12 @@ void ws_handle_garage_door_command(const cJSON *root, int sockfd)
     (void)sockfd;
     const char *action = get_action(root);
     ESP_LOGI(TAG, "door_command: %s", action ? action : "(null)");
-    if (!action || garage_controller_door_action(action) != ESP_OK)
+    esp_err_t ret = action ? garage_controller_door_action(action) : ESP_ERR_INVALID_ARG;
+    if (ret == ESP_ERR_NOT_SUPPORTED)
+    {
+        send_error("Door control not supported by the active protocol yet");
+    }
+    else if (ret != ESP_OK)
     {
         send_error("Invalid door action (toggle|open|close|stop)");
     }
@@ -77,7 +57,12 @@ void ws_handle_garage_light_command(const cJSON *root, int sockfd)
     (void)sockfd;
     const char *action = get_action(root);
     ESP_LOGI(TAG, "light_command: %s", action ? action : "(null)");
-    if (!action || garage_controller_light_action(action) != ESP_OK)
+    esp_err_t ret = action ? garage_controller_light_action(action) : ESP_ERR_INVALID_ARG;
+    if (ret == ESP_ERR_NOT_SUPPORTED)
+    {
+        send_error("Light control not supported by the active protocol");
+    }
+    else if (ret != ESP_OK)
     {
         send_error("Invalid light action (toggle|on|off)");
     }
@@ -88,7 +73,12 @@ void ws_handle_garage_lock_command(const cJSON *root, int sockfd)
     (void)sockfd;
     const char *action = get_action(root);
     ESP_LOGI(TAG, "lock_command: %s", action ? action : "(null)");
-    if (!action || garage_controller_lock_action(action) != ESP_OK)
+    esp_err_t ret = action ? garage_controller_lock_action(action) : ESP_ERR_INVALID_ARG;
+    if (ret == ESP_ERR_NOT_SUPPORTED)
+    {
+        send_error("Lock control not supported by the active protocol");
+    }
+    else if (ret != ESP_OK)
     {
         send_error("Invalid lock action (toggle|lock|unlock)");
     }

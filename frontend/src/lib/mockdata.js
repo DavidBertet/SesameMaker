@@ -7,12 +7,22 @@ let logIntervals = new Set()
 
 // ---- Garage mock state ----
 let garage = {
+  protocol: 'secplus1',
+  caps: {
+    light: true,
+    lock: true,
+    obstruction: true,
+    motion: true,
+    panel: true,
+    sensors: false,
+  },
   door: 'closed',
   light: 'off',
   locked: 'unlocked',
   obstruction: false,
   motion: false,
   panel: 'detected',
+  sensors: { open: false, close: false, valid: false },
 }
 
 const rxLog = [
@@ -33,8 +43,10 @@ const txLog = [
 ]
 
 function garageStatus(extra = {}) {
-  return {
+  const status = {
     type: 'garage_status',
+    protocol: garage.protocol,
+    caps: { ...garage.caps },
     door: garage.door,
     moving: garage.door === 'opening' || garage.door === 'closing',
     light: garage.light,
@@ -42,8 +54,54 @@ function garageStatus(extra = {}) {
     obstruction: garage.obstruction,
     motion: garage.motion,
     panel: garage.panel,
+    sensors: { ...garage.sensors },
     ...extra,
   }
+  // Reeds track the frame's door (transition frames carry a future door),
+  // so the badges stay in sync through open/close animations.
+  if (status.protocol === 'drycontact') status.sensors = drySensorsFor(status.door)
+  return status
+}
+
+// Demo reed model: hits follow the effective door state, like the real
+// firmware's report_snapshot. Open reed only exists in both-reeds mode;
+// the close reed hits only when fully closed; in between both are clear.
+function drySensorsFor(door) {
+  if (garage.protocol !== 'drycontact') return { ...garage.sensors }
+  if (dryCfg.sensor_mode === 0) return { open: false, close: false, valid: false }
+  return {
+    open: dryCfg.sensor_mode === 2 && door === 'open',
+    close: door === 'closed',
+    valid: true,
+  }
+}
+
+function protocolMessage() {
+  return {
+    type: 'protocol',
+    id: garage.protocol,
+    supported: garage.protocol !== 'secplus2',
+    caps: { ...garage.caps },
+    dry: { ...dryCfg },
+  }
+}
+
+const DRY_CAPS = {
+  light: false,
+  lock: false,
+  obstruction: false,
+  motion: false,
+  panel: false,
+  sensors: true,
+}
+
+const SECPLUS1_CAPS = {
+  light: true,
+  lock: true,
+  obstruction: true,
+  motion: true,
+  panel: true,
+  sensors: false,
 }
 
 export function cleanupMockLogs() {
@@ -135,6 +193,7 @@ export function generateMockResponse(data) {
     }
 
     case 'light_command': {
+      if (!garage.caps.light) return [{ type: 'error', message: 'Light not supported' }]
       const action = data.action || 'toggle'
       const turnOn = action === 'on' || (action === 'toggle' && garage.light !== 'on')
       garage.light = turnOn ? 'on' : 'off'
@@ -142,6 +201,7 @@ export function generateMockResponse(data) {
     }
 
     case 'lock_command': {
+      if (!garage.caps.lock) return [{ type: 'error', message: 'Lock not supported' }]
       const action = data.action || 'toggle'
       const lock = action === 'lock' || (action === 'toggle' && garage.locked !== 'locked')
       garage.locked = lock ? 'locked' : 'unlocked'
@@ -150,6 +210,42 @@ export function generateMockResponse(data) {
 
     case 'garage_sync':
       return [garageStatus()]
+
+    case 'get_protocol':
+      return [protocolMessage()]
+
+    case 'set_protocol': {
+      const id = data.id
+      // Dry settings ride along on the same call (single save path).
+      if (data.dry) {
+        for (const k of Object.keys(dryCfg)) {
+          if (data.dry[k] !== undefined) dryCfg[k] = data.dry[k]
+        }
+      }
+      if (id === 'drycontact') {
+        garage.protocol = 'drycontact'
+        garage.caps = { ...DRY_CAPS }
+        garage.panel = 'none'
+        garage.light = 'unknown'
+        garage.locked = 'unknown'
+        garage.obstruction = false
+        garage.motion = false
+        // Mirror the firmware: sensor validity follows the reed mode, not
+        // just the protocol. Relay-only reports no sensors at all. Hits are
+        // derived from the door in garageStatus, so only validity is seeded.
+        garage.sensors = { open: false, close: false, valid: dryCfg.sensor_mode !== 0 }
+      } else if (id === 'secplus1') {
+        garage.protocol = 'secplus1'
+        garage.caps = { ...SECPLUS1_CAPS }
+        garage.light = 'off'
+        garage.locked = 'unlocked'
+        garage.panel = 'detected'
+        garage.sensors = { open: false, close: false, valid: false }
+      } else {
+        return [{ type: 'error', message: 'Protocol not supported yet' }]
+      }
+      return [protocolMessage(), garageStatus()]
+    }
 
     case 'get_mqtt_config':
       return [{ type: 'mqtt_config', ...mqtt }]
@@ -223,6 +319,17 @@ let mqtt = {
   username: 'user',
   password_set: false,
   topic_prefix: 'home/sesame',
+}
+
+let dryCfg = {
+  relay_gpio: 5,
+  open_gpio: 17,
+  close_gpio: 18,
+  sensor_mode: 2,
+  active_low: true,
+  pulse_ms: 500,
+  debounce_ms: 200,
+  travel_s: 15,
 }
 
 let wifiDisconnected = {

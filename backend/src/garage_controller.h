@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "protocol.h"
 #include "secplus1.h"
 
 typedef enum
@@ -43,10 +44,22 @@ typedef struct
     garage_panel_mode_t panel_mode;
     uint32_t last_status_ms;
     bool door_moving; // we triggered a toggle and expect motion
+    // Active protocol + caps (refreshed from the registry). Reed sensor
+    // inputs are only meaningful when caps.sensors is true (dry-contact).
+    protocol_id_t protocol;
+    protocol_caps_t caps;
+    bool open_limit;
+    bool close_limit;
+    bool sensors_valid;
 } garage_state_t;
 
 esp_err_t garage_controller_init(void);
 esp_err_t garage_controller_start(void);
+// Re-read the active protocol/caps from the registry (after set_protocol).
+void garage_controller_refresh_protocol(void);
+// Shared garage_status JSON builder (single user + broadcast + tests).
+// Includes protocol, caps and (when caps.sensors) reed sensor state.
+size_t garage_controller_get_status_json(char *buf, size_t len);
 
 // High level actions. `action` is one of "toggle","open","close","stop".
 esp_err_t garage_controller_door_action(const char *action);
@@ -54,7 +67,10 @@ esp_err_t garage_controller_light_action(const char *action); // "toggle","on","
 esp_err_t garage_controller_lock_action(const char *action);  // "toggle","lock","unlock"
 
 esp_err_t garage_controller_get_state(garage_state_t *out);
+// Protocol-driver upcalls: dry-contact reports reed/door snapshots here.
+// The controller owns broadcast + MQTT; drivers never send WS frames.
+void garage_controller_report_door(secplus1_door_state_t door, bool moving);
+void garage_controller_report_sensors(bool open_hit, bool close_hit, bool valid);
 esp_err_t garage_controller_sync(void); // force a status query round
-
 bool garage_controller_light_on(void);
 bool garage_controller_locked(void);

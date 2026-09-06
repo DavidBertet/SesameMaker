@@ -3,6 +3,7 @@
 #include "mqtt.h"
 
 #include "garage_controller.h"
+#include "protocol_registry.h"
 #include "secplus1.h"
 #include "storage.h"
 
@@ -288,8 +289,7 @@ static void publish_all_discovery(void)
   char buf[1024];
 
   // Cover (garage door) - plain open/close/stop on {prefix}/door/set
-  make_topic("state", topic, sizeof(topic));
-  snprintf(buf, sizeof(buf),
+  make_topic("state", topic, sizeof(topic));  snprintf(buf, sizeof(buf),
            "{%s,\"name\":\"Garage Door\",\"unique_id\":\"sesame_garage_door\","
            "\"device_class\":\"garage\","
            "\"state_topic\":\"%s\","
@@ -303,11 +303,13 @@ static void publish_all_discovery(void)
            device, topic, s_config.topic_prefix);
   publish_discovery("cover", "garage_door", buf);
 
-  // Light - plain on/off on {prefix}/light/set. The firmware maps on/off to
-  // its single toggle action. NOTE: the light basic schema reads on/off state
-  // via state_value_template (NOT value_template), comparing against
-  // payload_on/payload_off.
-  snprintf(buf, sizeof(buf),
+  // Light / lock entities only exist when the active protocol drives them
+  // (dry-contact has neither). The state payload below omits them the same
+  // way so HA never shows a stale entity.
+  protocol_caps_t caps = protocol_registry_caps();
+  if (caps.light)
+  {
+    snprintf(buf, sizeof(buf),
            "{%s,\"name\":\"Garage Light\",\"unique_id\":\"sesame_garage_light\","
            "\"state_topic\":\"%s\","
            "\"state_value_template\":\"{{ value_json.light }}\","
@@ -315,19 +317,23 @@ static void publish_all_discovery(void)
            "\"payload_on\":\"on\",\"payload_off\":\"off\","
            "\"optimistic\":false,\"qos\":1}",
            device, topic, s_config.topic_prefix);
-  publish_discovery("light", "garage_light", buf);
+    publish_discovery("light", "garage_light", buf);
+  }
 
   // Lock - plain lock/unlock on {prefix}/lock/set
-  snprintf(buf, sizeof(buf),
-           "{%s,\"name\":\"Garage Lock\",\"unique_id\":\"sesame_garage_lock\","
-           "\"state_topic\":\"%s\","
-           "\"value_template\":\"{{ value_json.locked }}\","
-           "\"state_locked\":\"locked\",\"state_unlocked\":\"unlocked\","
-           "\"command_topic\":\"%s/lock/set\","
-           "\"payload_lock\":\"lock\",\"payload_unlock\":\"unlock\","
-           "\"qos\":1}",
-           device, topic, s_config.topic_prefix);
-  publish_discovery("lock", "garage_lock", buf);
+  if (caps.lock)
+  {
+    snprintf(buf, sizeof(buf),
+             "{%s,\"name\":\"Garage Lock\",\"unique_id\":\"sesame_garage_lock\","
+             "\"state_topic\":\"%s\","
+             "\"value_template\":\"{{ value_json.locked }}\","
+             "\"state_locked\":\"locked\",\"state_unlocked\":\"unlocked\","
+             "\"command_topic\":\"%s/lock/set\","
+             "\"payload_lock\":\"lock\",\"payload_unlock\":\"unlock\","
+             "\"qos\":1}",
+             device, topic, s_config.topic_prefix);
+    publish_discovery("lock", "garage_lock", buf);
+  }
 
   // Binary sensor: moving
   snprintf(buf, sizeof(buf),
@@ -339,16 +345,20 @@ static void publish_all_discovery(void)
             device, topic);
   publish_discovery("binary_sensor", "garage_moving", buf);
 
-  // Binary sensor: obstruction
-  snprintf(buf, sizeof(buf),
-           "{%s,\"name\":\"Garage Obstruction\","
-           "\"unique_id\":\"sesame_garage_obstruction\","
-           "\"device_class\":\"problem\","
-           "\"state_topic\":\"%s\","
-           "\"value_template\":\"{{ value_json.obstruction }}\","
-            "\"payload_on\":\"true\",\"payload_off\":\"false\",\"qos\":1}",
-            device, topic);
-  publish_discovery("binary_sensor", "garage_obstruction", buf);
+  // Binary sensor: obstruction only exists on bus protocols; dry-contact
+  // reports no obstruction so the entity is skipped.
+  if (caps.obstruction)
+  {
+    snprintf(buf, sizeof(buf),
+             "{%s,\"name\":\"Garage Obstruction\","
+             "\"unique_id\":\"sesame_garage_obstruction\","
+             "\"device_class\":\"problem\","
+             "\"state_topic\":\"%s\","
+             "\"value_template\":\"{{ value_json.obstruction }}\","
+              "\"payload_on\":\"true\",\"payload_off\":\"false\",\"qos\":1}",
+              device, topic);
+    publish_discovery("binary_sensor", "garage_obstruction", buf);
+  }
 }
 
 // ---- public API ----
@@ -404,7 +414,7 @@ esp_err_t mqtt_set_config(const mqtt_config_t *cfg)
 
 // Only publish when the state actually changed from the last publish, so we
 // don't hammer the broker with identical retained frames every second.
-static char s_last_state_payload[320] = "";
+static char s_last_state_payload[384] = "";
 
 void mqtt_publish_garage_state(void)
 {
@@ -416,13 +426,15 @@ void mqtt_publish_garage_state(void)
     return;
 
   char topic[128];
-  char payload[320];
+  char payload[384];
 
   make_topic("state", topic, sizeof(topic));
   snprintf(payload, sizeof(payload),
-           "{\"door\":\"%s\",\"moving\":%s,"
+           "{\"protocol\":\"%s\","
+           "\"door\":\"%s\",\"moving\":%s,"
            "\"light\":\"%s\",\"locked\":\"%s\","
            "\"obstruction\":%s,\"motion\":%s}",
+           protocol_id_str(st.protocol),
            secplus1_door_state_str(st.door_state),
            st.door_moving ? "true" : "false",
            st.light_state == GARAGE_LIGHT_ON ? "on"
