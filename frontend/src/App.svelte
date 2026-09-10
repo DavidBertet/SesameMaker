@@ -5,7 +5,7 @@
   import DoorTab from 'src/components/tab/DoorTab.svelte'
   import ProtocolTab from 'src/components/tab/ProtocolTab.svelte'
   import WifiTab from 'src/components/tab/WifiTab.svelte'
-  import MqttTab from 'src/components/tab/MqttTab.svelte'
+  import DeviceTab from 'src/components/tab/DeviceTab.svelte'
   import WebsocketStatus from 'src/components/common/WebsocketStatus.svelte'
   import SystemStatus from 'src/components/nav/SystemStatus.svelte'
   import UploadButton from 'src/components/ota/UploadButton.svelte'
@@ -34,7 +34,9 @@
 
   const isDev = import.meta.env.DEV
 
-  let activeTab = $state(new URLSearchParams(window.location.search).get('tab') || 'door')
+  let rawTab = $state(new URLSearchParams(window.location.search).get('tab') || 'door')
+  // Backward compat: ?tab=mqtt now lives inside Device Settings.
+  let activeTab = $state(rawTab === 'mqtt' ? 'device' : rawTab)
   let errorMessage = $state(null)
   let errorUnsub = $state(null)
   let settingsUnsub = $state(null)
@@ -102,10 +104,10 @@
       component: ProtocolTab,
     },
     {
-      id: 'mqtt',
-      label: 'MQTT',
+      id: 'device',
+      label: 'Device Settings',
       icon: Radio,
-      component: MqttTab,
+      component: DeviceTab,
     },
     {
       id: 'wifi',

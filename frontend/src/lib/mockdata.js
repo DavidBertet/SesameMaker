@@ -261,6 +261,46 @@ export function generateMockResponse(data) {
         { type: 'mqtt_config', ...mqtt },
       ]
 
+    case 'get_zigbee_config':
+      return [{ type: 'zigbee_config', ...zigbee }]
+
+    case 'set_zigbee_config':
+      zigbee.enabled = !!data.enabled
+      if (!zigbee.enabled) zigbee.pairing_remaining_s = 0
+      return [
+        { type: 'zigbee_saved', success: true },
+        { type: 'zigbee_config', ...zigbee },
+      ]
+
+    case 'zigbee_pair':
+      zigbee.enabled = true
+      zigbee.pairing_remaining_s = data.duration_s || 60
+      return [
+        { type: 'zigbee_pair', success: true },
+        { type: 'zigbee_config', ...zigbee },
+      ]
+
+    case 'zigbee_leave':
+      zigbee.joined = false
+      zigbee.channel = 0
+      zigbee.pan_id = 0
+      zigbee.pairing_remaining_s = 0
+      return [
+        { type: 'zigbee_leave', success: true },
+        { type: 'zigbee_config', ...zigbee },
+      ]
+
+    case 'zigbee_reset':
+      zigbee.enabled = false
+      zigbee.joined = false
+      zigbee.channel = 0
+      zigbee.pan_id = 0
+      zigbee.pairing_remaining_s = 0
+      return [
+        { type: 'zigbee_reset', success: true },
+        { type: 'zigbee_config', ...zigbee },
+      ]
+
     case 'get_garage_raw':
       return [
         {
@@ -311,6 +351,9 @@ let settings = {
     connected: false,
     setup: false,
   },
+  features: {
+    zigbee: true,
+  },
 }
 
 let mqtt = {
@@ -319,6 +362,15 @@ let mqtt = {
   username: 'user',
   password_set: false,
   topic_prefix: 'home/sesame',
+}
+
+let zigbee = {
+  supported: true,
+  enabled: false,
+  joined: false,
+  channel: 0,
+  pan_id: 0,
+  pairing_remaining_s: 0,
 }
 
 let dryCfg = {

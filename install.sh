@@ -88,6 +88,7 @@ Notes:
     and USB for SesameMaker devices and asks which one to use (auto-picks when
     exactly one is found).
   - Use -f or -b to target specific components
+  - Enter your board when asked (default: current board)
   - Use -y to skip confirmation prompts
   - --ota <IP> should be a valid IPv4 address
 EOF

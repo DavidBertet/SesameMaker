@@ -12,6 +12,7 @@ export function initializeSettings() {
   const unsubscribe = onMessageType('settings', (data) => {
     settingsState.ota = data.ota
     settingsState.wifi = data.wifi
+    settingsState.features = data.features || { zigbee: false }
   })
 
   return unsubscribe

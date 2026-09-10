@@ -33,6 +33,16 @@
 #define DRY_DEBOUNCE_MS_DEFAULT 200
 #define DRY_TRAVEL_S_DEFAULT 15
 
+// ==== SesameMaker: Zigbee (802.15.4 targets, see CONFIG_SOC_IEEE802154_SUPPORTED) ====
+// BOOT strapping pin doubles as the pairing button at runtime (sampled
+// after boot only; never held at reset or the chip enters download mode).
+// Value -1 = no button / no Zigbee on this target.
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+#define ZIGBEE_BOOT_GPIO 9
+#else
+#define ZIGBEE_BOOT_GPIO -1
+#endif
+
 // ==== SesameMaker: task timing ====
 #define GARAGE_TICK_MS 25
 #define GARAGE_BROADCAST_INTERVAL_MS 1000

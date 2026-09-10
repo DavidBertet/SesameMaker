@@ -1,9 +1,15 @@
 # Required for the WebSocket interface (frontend <-> backend).
 CONFIG_HTTPD_WS_SUPPORT=y
 
-# Custom partition table (factory + OTA + SPIFFS storage).
+# Custom partition table (factory + OTA + SPIFFS storage). Shared by every
+# env: all our boards ship 4MB+ flash so one 4MB layout fits all.
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_custom.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb.csv"
+
+# Must match the partition table above: stale 2MB values in generated
+# sdkconfig files trigger PIO's flash-size-mismatch warning and misconfigure
+# the bootloader on 4MB layouts.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 
 # MQTT client (publish air quality readings).
 CONFIG_MQTT_PROTOCOL_311=y

@@ -27,6 +27,8 @@
 #include "garage_controller.h"
 #include "protocol_registry.h"
 #include "mqtt.h"
+#include "zigbee.h"
+#include "ws_zigbee.h"
 
 static const char *TAG = "main";
 
@@ -111,6 +113,12 @@ void app_main()
   register_callback("get_mqtt_config", ws_handle_get_mqtt_config);
   register_callback("set_mqtt_config", ws_handle_set_mqtt_config);
 
+  register_callback("get_zigbee_config", ws_handle_get_zigbee_config);
+  register_callback("set_zigbee_config", ws_handle_set_zigbee_config);
+  register_callback("zigbee_pair", ws_handle_zigbee_pair);
+  register_callback("zigbee_leave", ws_handle_zigbee_leave);
+  register_callback("zigbee_reset", ws_handle_zigbee_reset);
+
   register_callback("log_start", ws_handle_log_start);
   register_callback("log_stop", ws_handle_log_stop);
   ws_log_init();
@@ -123,6 +131,10 @@ void app_main()
 
   // MQTT bridge (subscribes to {prefix}/set, publishes {prefix}/state)
   ESP_ERROR_CHECK(mqtt_init());
+
+  // Zigbee bridge (C6 only; no-op stub on classic builds)
+  ESP_ERROR_CHECK(zigbee_init());
+  zigbee_button_init();
 
   // Retrieve time from network
   start_ntp_sync();

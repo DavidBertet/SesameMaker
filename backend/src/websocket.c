@@ -34,7 +34,11 @@ typedef struct
 static client_info_t clients_info[MAX_CLIENTS];
 static esp_timer_handle_t ping_timer = NULL;
 
-#define MAX_CALLBACKS 20
+// Slots for WS message handlers. Was 20, which silently dropped every
+// registration past the 20th (ping+pong take 2, main.c has 24) —
+// set_zigbee_config/pair/leave/reset and log_start/log_stop never ran.
+// Keep headroom above the count asserted in cli/lib/callbacks.test.js.
+#define MAX_CALLBACKS 32
 
 static char json[1024];
 
@@ -460,7 +464,7 @@ void register_callback(const char *type, wsserver_receive_callback callback)
   }
   else
   {
-    ESP_LOGI(TAG, "Register callback has no available place");
+    ESP_LOGE(TAG, "Register callback has no available place for type %s", type);
   }
 }
 

@@ -10,6 +10,7 @@
 #include "constants.h"
 #include "garage_uart.h"
 #include "mqtt.h"
+#include "zigbee.h"
 #include "protocol_drycontact.h"
 #include "protocol_registry.h"
 #include "storage.h"
@@ -547,6 +548,7 @@ static void broadcast_status(void)
     garage_controller_get_status_json(json, sizeof(json));
     broadcast_message(json);
     mqtt_publish_garage_state();
+    zigbee_report_state();
 }
 
 static void garage_task(void *pv)

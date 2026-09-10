@@ -6,6 +6,28 @@ const { askQuestion } = require('./prompt')
 const { logger, colors } = require('./logger')
 const { injectOtaPassword } = require('./password')
 
+// Parse the single [env:...] section and its board from platformio.ini.
+// Line-anchored: comments may mention [env:...] names.
+// Returns { env, board } or null. Pure (no fs) so it is unit tested.
+function parsePioEnv(iniContent) {
+  const headers = [...iniContent.matchAll(/^\[env:([^\]]+)\]/gm)]
+  if (headers.length === 0) return null
+  const body = iniContent.slice(
+    headers[0].index,
+    headers.length > 1 ? headers[1].index : iniContent.length,
+  )
+  const boardMatch = body.match(/^\s*board\s*=\s*(.+?)\s*$/m)
+  return { env: headers[0][1].trim(), board: boardMatch ? boardMatch[1].trim() : null }
+}
+
+// Rewrite the `board = ...` line inside the [env:...] section.
+// Pure (no fs) so it is unit tested.
+function setEnvBoard(iniContent, envName, board) {
+  const parsed = parsePioEnv(iniContent)
+  if (!parsed || parsed.env !== envName) return iniContent
+  return iniContent.replace(/^\s*board\s*=.*$/m, `board = ${board}`)
+}
+
 async function configureBackend(args, otaPassword) {
   logger.step('Configuring backend...')
   logger.separator()
@@ -17,58 +39,43 @@ async function configureBackend(args, otaPassword) {
 
   const platformioPath = path.resolve('backend/platformio.ini')
   let platformioContent = fs.readFileSync(platformioPath, 'utf8')
+  const parsed = parsePioEnv(platformioContent)
 
-  // Extract the current environment name (section header [env:...]).
-  // PlatformIO derives the sdkconfig file and build dir from it, so it must
-  // stay in sync with the board or the target (esp32 / esp32c3 / ...) mismatches.
-  const envMatch = platformioContent.match(/\[env:([^\]]+)\]/)
-  const currentEnv = envMatch ? envMatch[1].trim() : null
-
-  // Extract current board
-  const boardMatch = platformioContent.match(/board\s*=\s*(.+)/)
-  const currentBoard = boardMatch ? boardMatch[1].trim() : 'esp32-c3-devkitm-1'
-
-  logger.info(`Current board: ${colors.yellow}${currentBoard}${colors.reset}`)
-
-  const shouldChange = await askQuestion('Do you want to change the board? (y/N)', args.autoYes)
-
-  if (shouldChange.toLowerCase() === 'y' || shouldChange.toLowerCase() === 'yes') {
-    console.log()
-    logger.info('Common ESP32 boards:')
-    console.log('  • esp32-c3-devkitm-1 (ESP32-C3 DevKit)')
-    console.log('  • esp32doit-devkit-v1 (ESP32 DevKit V1)')
-    console.log('  • esp32dev (Generic ESP32)')
-    console.log('  • nodemcu-32s (NodeMCU-32S)')
-    console.log('  • esp32-s3-devkitc-1 (ESP32-S3 DevKit)')
-    console.log()
-    logger.info(
-      'Full list: https://docs.platformio.org/en/latest/platforms/espressif32.html#boards',
-    )
-    console.log()
-
-    const newBoard = await askQuestion('Enter board name:', args.autoYes)
-
-    if (newBoard && newBoard !== currentBoard) {
-      // Rename the env section to match the new board so the generated
-      // sdkconfig (and build dir) match the new target.
-      if (currentEnv) {
-        platformioContent = platformioContent.replace(/\[env:[^\]]+\]/, `[env:${newBoard}]`)
-      }
-      platformioContent = platformioContent.replace(/board\s*=\s*.+/, `board = ${newBoard}`)
-      fs.writeFileSync(platformioPath, platformioContent)
-      logger.success(`Board updated to: ${newBoard}`)
-
-      // Purge stale sdkconfig + build artifacts so the new target regenerates cleanly.
-      cleanupBackendConfig(currentEnv)
-    }
+  if (!parsed || !parsed.board) {
+    logger.error('No [env:...] section with a board found in backend/platformio.ini')
+    process.exit(1)
   }
 
+  const envName = parsed.env
+  const current = parsed.board
+  logger.info(`Current board: ${colors.yellow}${current}${colors.reset}`)
+  console.log()
+  logger.info('Examples: esp32doit-devkit-v1, esp32-c3-devkitm-1, esp32-c6-devkitc-1')
+  console.log()
+
+  let board = current
+  if (!args.autoYes) {
+    const answer = await askQuestion(`Board [default: ${current}]:`, false)
+    if (answer && answer.trim()) board = answer.trim()
+  } else {
+    logger.warning(`Non-interactive, using board: ${board}`)
+  }
+
+  if (board !== current) {
+    platformioContent = setEnvBoard(platformioContent, envName, board)
+    fs.writeFileSync(platformioPath, platformioContent)
+    logger.success(`Board updated to: ${board}`)
+    // Target changed: stale sdkconfig + build artifacts would mismatch.
+    cleanupBackendConfig(envName)
+  }
+
+  logger.success(`Target: ${colors.yellow}${board}${colors.reset}`)
   console.log()
 }
 
 // Remove generated sdkconfig files and stale build dirs. Keeping sdkconfig.defaults
 // (it holds the required manual settings and is regenerated into the real sdkconfig).
-function cleanupBackendConfig(oldEnv) {
+function cleanupBackendConfig(envName) {
   const backendPath = path.resolve('backend')
 
   // Delete generated sdkconfig files, but keep sdkconfig.defaults*
@@ -80,12 +87,12 @@ function cleanupBackendConfig(oldEnv) {
     }
   }
 
-  // Remove the old env's build directory
+  // Remove the env's build directory so the new target regenerates cleanly
   const buildDir = path.join(backendPath, '.pio', 'build')
   if (fs.existsSync(buildDir)) {
     const dirs = fs.readdirSync(buildDir)
     for (const dir of dirs) {
-      if (dir === 'project.checksum' || (oldEnv && dir !== oldEnv)) {
+      if (dir === 'project.checksum' || (envName && dir !== envName)) {
         continue
       }
       fs.rmSync(path.join(buildDir, dir), { recursive: true, force: true })
@@ -119,4 +126,10 @@ function findBuildFiles() {
   }
 }
 
-module.exports = { configureBackend, cleanupBackendConfig, findBuildFiles }
+module.exports = {
+  configureBackend,
+  cleanupBackendConfig,
+  findBuildFiles,
+  parsePioEnv,
+  setEnvBoard,
+}
