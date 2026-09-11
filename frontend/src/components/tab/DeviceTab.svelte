@@ -291,8 +291,8 @@
             Zigbee
           </Card.Title>
           <Card.Description>
-            Join a Zigbee network as a door cover + light + lock. Exposes door
-            (Window Covering), light (On/Off), lock (Door Lock), obstruction and motion.
+            Join a Zigbee network as plain switches: door, light and remote
+            lockout. Endpoints follow the opener protocol.
           </Card.Description>
         </div>
         {#if zigLoading}
