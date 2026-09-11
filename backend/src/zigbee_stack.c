@@ -12,6 +12,7 @@
 #include "esp_zigbee_core.h"
 #include "esp_partition.h"
 #include "ha/esp_zigbee_ha_standard.h"
+#include "esp_coexist.h"
 
 static const char *TAG = "ZB_STACK";
 
@@ -274,6 +275,12 @@ static void zb_task(void *arg)
     ESP_ERROR_CHECK(esp_zb_platform_config(&platform_cfg));
     platform_done = true;
   }
+
+  // Coex arbiter BEFORE esp_zb_start: once 802.15.4 RX owns the radio,
+  // Wi-Fi loses receive windows and all traffic dies (beacon timeouts,
+  // reason-200 drops, dead web UI). Wi-Fi is already up (wifi-first boot),
+  // so pre-start is the earliest possible point.
+  ESP_ERROR_CHECK(esp_coex_wifi_i154_enable());
 
   esp_zb_cfg_t zb_cfg = {
       .esp_zb_role = ESP_ZB_DEVICE_TYPE_ED,

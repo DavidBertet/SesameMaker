@@ -202,8 +202,18 @@ static void setup_apsta(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    // Let coex own the Wi-Fi PS schedule so 802.15.4 RX can't starve
+    // Wi-Fi entirely. Must be after init!
+    ESP_ERROR_CHECK(esp_wifi_coex_pwr_configure(true));
+#endif
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_start());
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    // Modem-sleep lets the arbiter time-slice the radio to 802.15.4.
+    // Must be after start!
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
+#endif
 
     wifi_config_t wifi_config = {
         .ap = {
@@ -230,8 +240,16 @@ static esp_err_t setup_sta(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    // Same coex PS handover as setup_apsta: after init, before start.
+    ESP_ERROR_CHECK(esp_wifi_coex_pwr_configure(true));
+#endif
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    // Modem-sleep so the arbiter can time-slice to 802.15.4: after start.
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
+#endif
 
     ESP_LOGI(TAG, "WiFi STA init finished.");
     return ESP_OK;

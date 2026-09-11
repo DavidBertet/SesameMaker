@@ -31,6 +31,7 @@ static httpd_handle_t start_webserver(void)
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
   config.close_fn = on_client_disconnected;
+  config.task_priority = 7;
   config.uri_match_fn = httpd_uri_match_wildcard;
   config.lru_purge_enable = true;
   config.enable_so_linger = true;

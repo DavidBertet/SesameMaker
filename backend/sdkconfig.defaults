@@ -35,3 +35,12 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
 # Disable assertions to reclaim flash (kept INFO console logs).
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
+
+# Single-radio Wi-Fi/802.15.4 coexistence (C6): the arbiter time-slices
+# via the PM/modem-sleep framework. Runtime calls in main.c (PM), wifi.c
+# (coex PS handover) and zigbee_stack.c (arbiter enable) are required too.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+CONFIG_ESP_COEX_POWER_MANAGEMENT=y
+CONFIG_PM_ENABLE=y
+CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=y
+CONFIG_FREERTOS_HZ=1000

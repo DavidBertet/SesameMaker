@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include <esp_event.h>
 #include "esp_netif.h"
+#include "esp_pm.h"
 
 #include "constants.h"
 #include "storage.h"
@@ -73,6 +74,19 @@ void app_main()
   ESP_ERROR_CHECK(esp_netif_init());
   // Init event mechanism
   ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+  // Power Management framework must be up BEFORE WiFi init: the Wi-Fi/802.15.4
+  // coex arbiter needs it to time-slice the single 2.4 GHz radio. 15.4 targets
+  // only, so classic chips keep default clocks. light_sleep stays off
+  // (Zigbee RX must stay on); WIFI_PS_MIN_MODEM gives the slice windows.
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+  esp_pm_config_t pm_cfg = {
+      .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+      .min_freq_mhz = 80,
+      .light_sleep_enable = false,
+  };
+  ESP_ERROR_CHECK(esp_pm_configure(&pm_cfg));
+#endif
 
   // Init file storage
   ESP_ERROR_CHECK(setup_spiffs());
