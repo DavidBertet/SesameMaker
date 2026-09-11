@@ -90,6 +90,7 @@ void zigbee_on_joined(uint16_t channel, uint16_t pan_id)
   s_joined = true;
   s_channel = channel;
   s_pan_id = pan_id;
+  s_pair_until_us = 0; // joined: window served its purpose
   broadcast_zigbee_config();
 }
 
