@@ -1,0 +1,17 @@
+# SesameMaker app options. The Zigbee stack is enabled conditionally on the
+# silicon capability (not the board or env), so classic ESP32 builds never
+# pay for it and future 802.15.4 targets pick it up with no CLI change.
+# sdkconfig.defaults intentionally carries no ZB symbols.
+menu "SesameMaker"
+
+    config SESAME_ZIGBEE_STACK
+        bool "Enable Zigbee stack (802.15.4 targets only)"
+        default y
+        depends on SOC_IEEE802154_SUPPORTED
+        select ZB_ENABLED
+        help
+            Pulls in esp-zigbee-lib + esp-zboss-lib (vendored under
+            backend/components) on targets with a native 802.15.4 radio.
+            ZB device type defaults to ZC/ZR (router) with native radio.
+
+endmenu

@@ -14,6 +14,17 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 # MQTT client (publish air quality readings).
 CONFIG_MQTT_PROTOCOL_311=y
 
+# Zigbee stack requirements (from the esp-zigbee-lib HA examples). Crypto
+# only — the stack itself is enabled per-target via src/Kconfig.projbuild,
+# so these harmless mbedTLS options ride along on classic builds too.
+CONFIG_MBEDTLS_HARDWARE_AES=n
+CONFIG_MBEDTLS_HARDWARE_MPI=n
+CONFIG_MBEDTLS_HARDWARE_SHA=n
+CONFIG_MBEDTLS_CMAC_C=y
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_ECJPAKE=y
+CONFIG_MBEDTLS_ECJPAKE_C=y
+
 # Socket budget: httpd takes up to max_open_sockets (10) + control socket,
 # MQTT holds 1-2, browsers open 6+ parallel conns per tab. Default 10
 # starves accept() with ENFILE as soon as a page loads.
@@ -24,5 +35,3 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
 # Disable assertions to reclaim flash (kept INFO console logs).
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
-
-

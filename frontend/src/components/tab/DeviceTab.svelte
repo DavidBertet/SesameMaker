@@ -342,7 +342,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <LoadingButton
             onclick={pairZigbee}
-            disabled={zigBusy || !zigbeeState.config.enabled}
+            disabled={zigBusy || !zigbeeState.config.enabled || zigbeeState.config.joined}
             loading={zigBusy}
             loadingLabel="Working…"
             icon={Link}

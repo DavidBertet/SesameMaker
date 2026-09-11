@@ -46,6 +46,11 @@ extern "C"
   // No-op on targets without a button (ZIGBEE_BOOT_GPIO < 0).
   void zigbee_button_init(void);
 
+  // Internal stack upcalls / queries (used by zigbee_stack.c).
+  bool zigbee_pairing_open(void);
+  void zigbee_on_joined(uint16_t channel, uint16_t pan_id);
+  void zigbee_on_left(void);
+
 #ifdef __cplusplus
 }
 #endif

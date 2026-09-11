@@ -1,13 +1,7 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 //
 // Zigbee bridge (802.15.4 targets only, gated by IDF's
-// CONFIG_SOC_IEEE802154_SUPPORTED — no custom build flag).
-//
-// Current state: NVS-backed config + state machine + BOOT-button pairing.
-// The real esp-zigbee-lib endpoint/cluster wiring (Window Covering 0x0102,
-// On/Off 0x0006, Door Lock 0x0101, Binary Input, Occupancy) lands on top of
-// this file: search for ZB_TODO. Without the IDF flag everything compiles to
-// no-op stubs so the classic ESP32/C3 2MB build pays zero flash.
+// CONFIG_SOC_IEEE802154_SUPPORTED).
 
 #include "zigbee.h"
 
@@ -15,6 +9,7 @@
 #include "garage_controller.h"
 #include "storage.h"
 #include "ws_zigbee.h"
+#include "zigbee_stack.h"
 
 #include "esp_log.h"
 
@@ -78,10 +73,32 @@ esp_err_t zigbee_init(void)
     ESP_LOGI(TAG, "Zigbee disabled");
     return ESP_OK;
   }
-  // ZB_TODO: esp_zb_init + HA endpoint (cover/light/lock/sensors) +
-  // BDB commissioning start. Until then: enabled flag only.
-  ESP_LOGI(TAG, "Zigbee enabled (stack wiring pending)");
+  ESP_LOGI(TAG, "Zigbee enabled, starting stack");
+  zigbee_stack_start();
   return ESP_OK;
+}
+
+// True while a pairing window is open (steering target).
+bool zigbee_pairing_open(void)
+{
+  return s_pair_until_us > esp_timer_get_time();
+}
+
+// Stack upcalls (run in ZB task context): network joined/left.
+void zigbee_on_joined(uint16_t channel, uint16_t pan_id)
+{
+  s_joined = true;
+  s_channel = channel;
+  s_pan_id = pan_id;
+  broadcast_zigbee_config();
+}
+
+void zigbee_on_left(void)
+{
+  s_joined = false;
+  s_channel = 0;
+  s_pan_id = 0;
+  broadcast_zigbee_config();
 }
 
 esp_err_t zigbee_get_state(zigbee_state_t *out)
@@ -103,9 +120,16 @@ esp_err_t zigbee_set_enabled(bool enabled)
 {
   s_enabled = enabled;
   if (!enabled)
+  {
     s_pair_until_us = 0;
+    if (s_joined)
+      zigbee_stack_leave();
+  }
+  else
+  {
+    zigbee_stack_start();
+  }
   persist();
-  // ZB_TODO: start/stop the ZB task, commission or leave accordingly.
   ESP_LOGI(TAG, "Zigbee %s", enabled ? "enabled" : "disabled");
   broadcast_zigbee_config();
   return ESP_OK;
@@ -115,10 +139,17 @@ esp_err_t zigbee_start_pairing(uint32_t duration_s)
 {
   if (!s_enabled)
     return ESP_ERR_INVALID_STATE;
+  // Already on a network: re-steering can't admit joiners (we're an ED,
+  // not a router) and risks leaving the current network. Leave first.
+  if (s_joined)
+  {
+    ESP_LOGW(TAG, "Pairing blocked: already joined, leave first");
+    return ESP_ERR_INVALID_STATE;
+  }
   if (duration_s == 0 || duration_s > ZIG_PAIR_MAX_S)
     duration_s = 60;
   s_pair_until_us = esp_timer_get_time() + (int64_t)duration_s * 1000000;
-  // ZB_TODO: BDB steering + Identify cluster blink for duration_s.
+  zigbee_stack_pair();
   ESP_LOGI(TAG, "Pairing window open for %lus", (unsigned long)duration_s);
   broadcast_zigbee_config();
   return ESP_OK;
@@ -130,9 +161,9 @@ esp_err_t zigbee_leave(void)
   s_channel = 0;
   s_pan_id = 0;
   s_pair_until_us = 0;
-  // ZB_TODO: esp_zb_bdb_reset / leave with rejoin cleared.
+  zigbee_stack_leave();
   ESP_LOGI(TAG, "Left Zigbee network");
-  broadcast_zigbee_config();
+  zigbee_on_left(); // optimistic; signal handler confirms on rejoin paths
   return ESP_OK;
 }
 
@@ -144,9 +175,9 @@ esp_err_t zigbee_factory_reset(void)
   s_pair_until_us = 0;
   delete_blob(ZIG_CFG_KEY);
   s_enabled = false;
-  // ZB_TODO: factory-reset the ZB stack (erase binding/groups/scenes).
+  zigbee_stack_factory_reset();
   ESP_LOGI(TAG, "Zigbee factory reset");
-  broadcast_zigbee_config();
+  zigbee_on_left();
   return ESP_OK;
 }
 
@@ -157,9 +188,7 @@ void zigbee_report_state(void)
   garage_state_t st;
   if (garage_controller_get_state(&st) != ESP_OK)
     return;
-  // ZB_TODO: update cover position / onoff / lock / binary / occupancy
-  // attributes from st (+ caps gating), debounced like MQTT.
-  (void)st;
+  zigbee_stack_report(&st);
 }
 
 // ---- BOOT button: runtime sampling only, active-low ----

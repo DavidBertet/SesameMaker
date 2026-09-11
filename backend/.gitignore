@@ -1,4 +1,7 @@
 .pio
+# IDF component manager retrieval (see src/idf_component.yml): fetched at
+# build time, never committed.
+managed_components/
 sdkconfig
 sdkconfig.old
 sdkconfig.bak
