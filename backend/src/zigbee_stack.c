@@ -17,18 +17,20 @@
 static const char *TAG = "ZB_STACK";
 
 // One endpoint per function so hubs map each to the right entity, all as
-// plain switches: door = On/Off Output, light = On/Off Light, deadbolt =
-// On/Off Output. No lock clusters anywhere (no PIN pad / keypad baggage)
-// and no Window Covering (no position/tilt sliders for a binary door).
+// plain switches: door = On/Off Output, light = On/Off Light, remote
+// lockout = On/Off Output. No lock clusters anywhere (no PIN pad / keypad
+// baggage) and no Window Covering (no position/tilt sliders for a binary
+// door).
 #define ZB_EP_DOOR 10
 #define ZB_EP_LIGHT 11
 #define ZB_EP_LOCK 12
 #define ZB_TASK_STACK 8192
 #define ZB_TASK_PRIO 3
 
-// Length-prefixed ZCL strings: first byte is the length.
-#define ZB_MANUFACTURER_NAME "\x0bDavidBertet"
-#define ZB_MODEL_IDENTIFIER "\x0bSesameMaker"
+// Length-prefixed ZCL strings. The length byte is a separate literal:
+// "\x0bD..." would parse as \xBD (D is a hex digit), corrupting the attr.
+#define ZB_MANUFACTURER_NAME "\x0b" "DavidBertet"
+#define ZB_MODEL_IDENTIFIER "\x0b" "SesameMaker"
 
 static bool s_started = false;
 static bool s_ready = false; // esp_zb_start() done, alarms safe
@@ -114,7 +116,7 @@ static void handle_onoff(const esp_zb_zcl_set_attr_value_message_t *m)
       m->attribute.data.type != ESP_ZB_ZCL_ATTR_TYPE_BOOL || !m->attribute.data.value)
     return;
   bool on = *(bool *)m->attribute.data.value;
-  // Door: on = open. Lamp: on = on. Deadbolt: on = locked.
+  // Door: on = open. Lamp: on = on. Remote lockout: on = remotes disabled.
   if (m->info.dst_endpoint == ZB_EP_DOOR)
   {
     ESP_LOGI(TAG, "Door %s", on ? "open" : "close");
@@ -127,7 +129,7 @@ static void handle_onoff(const esp_zb_zcl_set_attr_value_message_t *m)
   }
   else if (m->info.dst_endpoint == ZB_EP_LOCK)
   {
-    ESP_LOGI(TAG, "Deadbolt %s", on ? "locked" : "unlocked");
+    ESP_LOGI(TAG, "Remotes %s", on ? "locked out" : "enabled");
     garage_controller_lock_action(on ? "lock" : "unlock");
   }
 }
@@ -256,7 +258,7 @@ static esp_zb_ep_list_t *build_endpoints(void)
   }
   if (caps.lock)
   {
-    // Deadbolt as a switch too (on = locked): no keypad baggage.
+    // Remote lockout as a switch too (on = remotes disabled).
     add_endpoint(ep_list, output_clusters(), ZB_EP_LOCK, ESP_ZB_HA_ON_OFF_OUTPUT_DEVICE_ID);
   }
   return ep_list;

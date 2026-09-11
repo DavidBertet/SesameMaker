@@ -125,6 +125,15 @@
     }
   })
 
+  // Fixed panel overlays the page bottom: pad the page by the panel
+  // height while open so scrolled-to-end content lands above it.
+  $effect(() => {
+    document.body.style.paddingBottom = open ? '40vh' : ''
+    return () => {
+      document.body.style.paddingBottom = ''
+    }
+  })
+
   onDestroy(() => {
     if (open) stopLogs()
   })
