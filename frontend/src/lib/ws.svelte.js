@@ -142,6 +142,16 @@ export function connectWebSocket(wsUrl) {
         return // Don't add pong messages to the general message store
       }
 
+      // Any other inbound traffic proves the device is live, so defer the
+      // next ping by a full interval (and cancel a pending dead-check: the
+      // device answered with real data instead of a pong). This keeps
+      // streaming screens from paying for a ping/pong on top of live data.
+      if (pongTimeout) {
+        clearTimeout(pongTimeout)
+        pongTimeout = null
+      }
+      schedulePing()
+
       // Notify type-specific listeners
       if (data.type && listeners[data.type]) {
         listeners[data.type].forEach((cb) => cb(data))
