@@ -49,17 +49,34 @@ test('PIO-flashed and IDF-assumed partition tables agree', () => {
   const assumed = defaults.match(/CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="(.+?)"/)[1]
   const flashed = ini.match(/^\s*board_build\.partitions\s*=\s*(.+?)\s*$/m)[1]
   assert.equal(assumed, flashed)
-  // No overlaps, contiguous layout.
+  // No overlaps, 4K-aligned, fills flash exactly. NOTE: the ZB rows keep
+  // subtype `fat` per the Espressif ZB examples (validated on hardware:
+  // the stack joins and persists NVRAM on them). PIO buildfs sizes the
+  // SPIFFS image from the LAST data spiffs/fat/littlefs row, so `spiffs`
+  // must stay last — the ZB rows sit before it and don't affect sizing.
   const csv = fs.readFileSync(path.resolve('backend', flashed), 'utf8')
-  let end = 0
+  const rows = []
   for (const line of csv.split('\n')) {
     const t = line.trim()
     if (!t || t.startsWith('#')) continue
-    const [, , , off, size] = t.split(',').map((s) => s.trim())
-    const o = parseInt(off, 16)
-    const s = parseInt(size, 16)
-    assert.ok(o >= end, 'overlapping partitions')
-    end = o + s
+    const [name, type, subtype, off, size] = t.split(',').map((s) => s.trim())
+    rows.push({ name, type, subtype, o: parseInt(off, 16), s: parseInt(size, 16) })
+  }
+  rows.sort((a, b) => a.o - b.o)
+  let end = 0
+  for (const r of rows) {
+    assert.ok(r.o >= end, `overlapping partition ${r.name}`)
+    assert.equal(r.o % 0x1000, 0, `unaligned ${r.name}`)
+    assert.equal(r.s % 0x1000, 0, `unaligned ${r.name}`)
+    end = r.o + r.s
   }
   assert.equal(end, 0x400000)
+  // FS-subtype rows, in layout order: ZB persistence first, spiffs last
+  // (buildfs sizes from the last one).
+  assert.deepEqual(
+    rows
+      .filter((r) => r.type === 'data' && ['spiffs', 'fat', 'littlefs'].includes(r.subtype))
+      .map((r) => r.name),
+    ['zb_storage', 'zb_fct', 'spiffs'],
+  )
 })

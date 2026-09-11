@@ -6,6 +6,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { protocolState, dryCfg, saveProtocol } from 'src/lib/door.svelte.js'
+  import { zigbeeState, initializeZigbee } from 'src/lib/zigbee.svelte.js'
   import { onMessageType } from 'src/lib/ws.svelte.js'
   import LoadingButton from 'src/components/common/LoadingButton.svelte'
   import * as Card from '$lib/components/ui/card'
@@ -73,6 +74,7 @@
 
   onMount(() => {
     syncForm()
+    const unsubZigbee = initializeZigbee()
     // NOTE: read the message payload directly, not the stores. This listener
     // is registered before initializeGarage's (child onMount fires first),
     // so the stores still hold the previous protocol when this runs.
@@ -86,6 +88,7 @@
     })
     return () => {
       if (unsub) unsub()
+      if (unsubZigbee) unsubZigbee()
     }
   })
 
@@ -194,6 +197,13 @@
             <Input id="dry-travel" type="number" min="5" max="300" bind:value={form.dry.travel_s} />
           </div>
         </div>
+      {/if}
+
+      {#if zigbeeState.config.joined && form.id !== protocolState.id}
+        <p class="text-xs text-amber-500 leading-snug">
+          Zigbee is joined — saving a different protocol disconnects it and reboots. Re-pair
+          afterwards.
+        </p>
       {/if}
 
       <LoadingButton

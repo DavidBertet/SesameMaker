@@ -10,12 +10,40 @@
 #include "protocol_drycontact.h"
 #include "protocol_registry.h"
 #include "websocket.h"
+#include "zigbee.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "WS_PROTOCOL";
+
+static void reboot_timer_cb(void *arg)
+{
+    (void)arg;
+    esp_restart();
+}
+
+// Reboot shortly after the responses flush (WS send is queued).
+static void schedule_reboot(uint32_t delay_ms)
+{
+    esp_timer_handle_t timer;
+    const esp_timer_create_args_t args = {
+        .callback = &reboot_timer_cb,
+        .name = "proto_reboot",
+    };
+    if (esp_timer_create(&args, &timer) != ESP_OK)
+    {
+        esp_restart();
+        return;
+    }
+    if (esp_timer_start_once(timer, (uint64_t)delay_ms * 1000) != ESP_OK)
+    {
+        esp_restart();
+    }
+}
 
 static void send_error(const char *message)
 {
@@ -87,6 +115,7 @@ void ws_handle_set_protocol(const cJSON *root, int sockfd)
         send_error("Protocol not supported yet (secplus2 stub)");
         return;
     }
+    protocol_id_t prev_id = protocol_registry_get();
     // Optional dry-contact settings ride along in the same call so the UI
     // needs a single save path regardless of protocol.
     cJSON *dry = cJSON_GetObjectItem(root, "dry");
@@ -127,4 +156,16 @@ void ws_handle_set_protocol(const cJSON *root, int sockfd)
     char status[512];
     garage_controller_get_status_json(status, sizeof(status));
     broadcast_message(status);
+    if (id != prev_id)
+    {
+        // Endpoints follow protocol caps: a joined network no longer
+        // matches, so leave it and reboot to rebuild from the new caps.
+        zigbee_state_t zs;
+        if (zigbee_get_state(&zs) == ESP_OK && zs.joined)
+        {
+            ESP_LOGW(TAG, "Protocol switched while joined: leaving Zigbee + rebooting");
+            zigbee_leave();
+            schedule_reboot(800);
+        }
+    }
 }
