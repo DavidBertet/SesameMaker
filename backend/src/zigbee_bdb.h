@@ -1,13 +1,14 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 //
 // BDB commissioning status code -> short name, for signal-handler logs.
-// The stack reports BDB statuses (not esp_err) in esp_zb_app_signal_t, so
-// esp_err_to_name() renders garbage like "UNKNOWN ERROR 0x3" — this maps
-// the real meaning (0x03 = NO_NETWORK: scan heard no usable parent).
+// The stack delivers these in the signal payload (NO_NETWORK = scan
+// heard no usable parent, TCLK_EX_FAILURE = trust-center key exchange
+// failed). NULL when the code is not a BDB status — callers must say so
+// instead of printing a bogus name.
 //
 // Numeric on purpose so host tests need no ESP-IDF headers (same pattern
 // as zigbee_lqi.h); zigbee_stack.c pins each value to the matching
-// ESP_ZB_BDB_STATUS_* constant with _Static_assert.
+// EZB_BDB_STATUS_* constant with _Static_assert.
 
 #pragma once
 
@@ -19,11 +20,7 @@ extern "C"
 #endif
 
 // Short BDB commissioning status name, or NULL when the code is not a
-// BDB status. NULL matters: on esp-zigbee-lib 1.x the stack reports some
-// failures (e.g. failed DEVICE_REBOOT rejoin) as a generic ZBOSS error
-// (0xffffffff), not a BDB sub-status — there is no NO_NETWORK vs
-// TCLK_EX_FAILURE detail to decode there, and callers must say so
-// instead of printing a bogus name.
+// BDB status (no sub-cause to decode — callers report the raw code).
 static inline const char *zigbee_bdb_status_name(uint8_t status)
 {
     switch (status)

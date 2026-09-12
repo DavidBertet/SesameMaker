@@ -1,9 +1,8 @@
 # SesameMaker shared layout (4MB flash): OTA slots ~1.69MB each leave room
 # for the app to grow (Zigbee stack, web UI), SPIFFS keeps 576KB for web files.
 # Used by every env — all our boards (classic ESP32, C3, C6) ship 4MB+ flash.
-# zb_storage/zb_fct are FAT partitions holding ZB stack persistence
-# (asserts at boot without zb_storage); kept at the end so the app +
-# SPIFFS offsets never move.
+# zb_storage/zb_fct are reserved regions kept at fixed offsets so the app +
+# SPIFFS offsets never move (OTA updates don't rewrite the table).
 # NOTE: spiffs must be LAST for pio to pick the right to upload frontend to
 # Name,     Type, SubType, Offset,   Size, Flags
 nvs,        data, nvs,     0x9000,   0x4000,

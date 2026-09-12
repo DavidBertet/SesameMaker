@@ -2,5 +2,4 @@
 ## Fetched automatically at build time into backend/managed_components/
 ## (gitignored) — never vendor binaries into backend/components/.
 dependencies:
-  espressif/esp-zigbee-lib: "==1.6.4"
-  espressif/esp-zboss-lib: "==1.6.4"
+  espressif/esp-zigbee-lib: '==2.0.4'

@@ -6,7 +6,7 @@
 // The stack polls our own neighbor table (Mgmt_Lqi_req to self) and picks
 // the entry whose relationship is the parent. Relationship is passed as a
 // plain number so hosts need no IDF headers: it must equal
-// ESP_ZB_NWK_RELATIONSHIP_PARENT (0); zigbee_stack.c enforces that with a
+// EZB_NWK_RELATIONSHIP_PARENT (0); zigbee_stack.c enforces that with a
 // _Static_assert at build time.
 
 #pragma once
@@ -18,7 +18,7 @@ extern "C"
 {
 #endif
 
-// Relationship value meaning "parent" (== ESP_ZB_NWK_RELATIONSHIP_PARENT).
+// Relationship value meaning "parent" (== EZB_NWK_RELATIONSHIP_PARENT).
 #define ZB_LQI_PARENT_RELATIONSHIP 0
 // Neighbor entries scanned per response page (ED tables are single-digit).
 #define ZB_LQI_MAX_ENTRIES 16
