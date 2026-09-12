@@ -158,12 +158,12 @@ void ws_handle_set_protocol(const cJSON *root, int sockfd)
     broadcast_message(status);
     if (id != prev_id)
     {
-        // Endpoints follow protocol caps: a joined network no longer
+        // Endpoints follow protocol caps: a configured network no longer
         // matches, so leave it and reboot to rebuild from the new caps.
         zigbee_state_t zs;
-        if (zigbee_get_state(&zs) == ESP_OK && zs.joined)
+        if (zigbee_get_state(&zs) == ESP_OK && (zs.joined || zs.commissioned))
         {
-            ESP_LOGW(TAG, "Protocol switched while joined: leaving Zigbee + rebooting");
+            ESP_LOGW(TAG, "Protocol switched while configured: leaving Zigbee + rebooting");
             zigbee_leave();
             schedule_reboot(800);
         }

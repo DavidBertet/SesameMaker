@@ -17,3 +17,12 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_drycontact \
 cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee \
     test_zigbee.c
 /tmp/test_zigbee
+cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_rejoin \
+    test_zigbee_rejoin.c
+/tmp/test_zigbee_rejoin
+cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_lqi \
+    test_zigbee_lqi.c
+/tmp/test_zigbee_lqi
+cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_bdb \
+    test_zigbee_bdb.c
+/tmp/test_zigbee_bdb

@@ -282,6 +282,7 @@ export function generateMockResponse(data) {
 
     case 'zigbee_leave':
       zigbee.joined = false
+      zigbee.commissioned = false
       zigbee.channel = 0
       zigbee.pan_id = 0
       zigbee.pairing_remaining_s = 0
@@ -293,6 +294,7 @@ export function generateMockResponse(data) {
     case 'zigbee_reset':
       zigbee.enabled = false
       zigbee.joined = false
+      zigbee.commissioned = false
       zigbee.channel = 0
       zigbee.pan_id = 0
       zigbee.pairing_remaining_s = 0
@@ -368,9 +370,14 @@ let zigbee = {
   supported: true,
   enabled: false,
   joined: false,
+  commissioned: false,
   channel: 0,
   pan_id: 0,
   pairing_remaining_s: 0,
+  lqi: 0,
+  lqi_valid: false,
+  parent_addr: 0,
+  parent_depth: 0,
 }
 
 let dryCfg = {

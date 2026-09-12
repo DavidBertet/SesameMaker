@@ -199,9 +199,9 @@
         </div>
       {/if}
 
-      {#if zigbeeState.config.joined && form.id !== protocolState.id}
+      {#if (zigbeeState.config.joined || zigbeeState.config.commissioned) && form.id !== protocolState.id}
         <p class="text-xs text-amber-500 leading-snug">
-          Zigbee is joined — saving a different protocol disconnects it and reboots. Re-pair
+          Zigbee is configured — saving a different protocol disconnects it and reboots. Re-pair
           afterwards.
         </p>
       {/if}

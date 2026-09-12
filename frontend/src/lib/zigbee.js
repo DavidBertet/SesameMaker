@@ -12,10 +12,31 @@ export function zigbeeStatusMeta(cfg) {
   if (!cfg.enabled) return { label: 'Disabled', variant: 'outline' }
   if (cfg.pairing_remaining_s > 0) return { label: 'Pairing…', variant: 'default' }
   if (cfg.joined) return { label: 'Joined', variant: 'secondary' }
+  // Credentials stored but no live link (reboot during coordinator outage,
+  // rejoin retries running): distinct from never-paired "Not joined".
+  if (cfg.commissioned) return { label: 'Reconnecting…', variant: 'default' }
   return { label: 'Not joined', variant: 'destructive' }
 }
 
 export function formatPanId(panId) {
   if (!panId) return '—'
   return '0x' + Number(panId).toString(16).toUpperCase().padStart(4, '0')
+}
+
+// Parent-link quality label for the 0-255 LQI scale (mirrors the WiFi page's
+// getSignalStrength wording so both radios read the same way).
+export function zigbeeLqiLabel(lqi) {
+  if (lqi >= 200) return 'Excellent'
+  if (lqi >= 150) return 'Good'
+  if (lqi >= 100) return 'Fair'
+  return 'Weak'
+}
+
+// Parent description: depth 0 is the coordinator itself, anything else is
+// a router short address. Shown only when the LQI poll has produced a
+// reading (lqi_valid).
+export function zigbeeParentLabel(cfg) {
+  if (!cfg || !cfg.lqi_valid) return ''
+  if (cfg.parent_depth === 0) return 'via coordinator'
+  return 'via ' + formatPanId(cfg.parent_addr)
 }

@@ -13,10 +13,22 @@ typedef struct
 {
   bool enabled;
   bool joined; // observed network state (read-only for the UI)
+  // Network credentials stored (paired at some point), even if currently
+  // disconnected — e.g. reboot while the coordinator is down. Lets the UI
+  // show "Reconnecting…" instead of the misleading "Not joined".
+  bool commissioned;
   uint16_t channel;
   uint16_t pan_id;
   // Seconds remaining in the pairing window, 0 = closed.
   uint32_t pairing_remaining_s;
+  // Parent-link LQI (0-255) from the last neighbor-table poll; valid only
+  // when lqi_valid (cleared on leave/reset, polled ~1/min while joined).
+  uint8_t lqi;
+  bool lqi_valid;
+  // Parent we are joined through: short address + tree depth (0 = the
+  // coordinator itself). Valid together with lqi_valid.
+  uint16_t parent_addr;
+  uint8_t parent_depth;
 } zigbee_state_t;
 
 #ifdef __cplusplus
@@ -50,6 +62,11 @@ extern "C"
   bool zigbee_pairing_open(void);
   void zigbee_on_joined(uint16_t channel, uint16_t pan_id);
   void zigbee_on_left(void);
+  // Stack upcall: network credentials present (production config restored,
+  // rejoin in progress) or absent (factory-new / wiped). Cleared by
+  // zigbee_on_left; set alongside zigbee_on_joined.
+  void zigbee_on_commissioned(bool commissioned);
+  void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi);
 
 #ifdef __cplusplus
 }

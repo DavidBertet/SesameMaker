@@ -31,17 +31,22 @@ static bool format_state(char *json, size_t len)
 #endif
     snprintf(json, len,
              "{\"type\":\"zigbee_config\",\"supported\":%s,"
-             "\"enabled\":%s,\"joined\":%s,"
-             "\"channel\":%u,\"pan_id\":%u,\"pairing_remaining_s\":%lu}",
+             "\"enabled\":%s,\"joined\":%s,\"commissioned\":%s,"
+             "\"channel\":%u,\"pan_id\":%u,\"pairing_remaining_s\":%lu,"
+             "\"lqi\":%u,\"lqi_valid\":%s,"
+             "\"parent\":%u,\"parent_depth\":%u}",
              supported, st.enabled ? "true" : "false",
-             st.joined ? "true" : "false", st.channel, st.pan_id,
-             (unsigned long)st.pairing_remaining_s);
+             st.joined ? "true" : "false", st.commissioned ? "true" : "false",
+             st.channel, st.pan_id,
+             (unsigned long)st.pairing_remaining_s,
+             st.lqi, st.lqi_valid ? "true" : "false",
+             st.parent_addr, st.parent_depth);
     return true;
 }
 
 static void send_state(int sockfd)
 {
-    char json[256];
+    char json[320];
     if (!format_state(json, sizeof(json)))
     {
         send_error("Failed to read Zigbee state");
@@ -52,7 +57,7 @@ static void send_state(int sockfd)
 
 void broadcast_zigbee_config(void)
 {
-    char json[256];
+    char json[320];
     if (!format_state(json, sizeof(json)))
     {
         return;

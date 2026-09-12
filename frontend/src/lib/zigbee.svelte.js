@@ -7,9 +7,14 @@ export const zigbeeState = $state({
     supported: false,
     enabled: false,
     joined: false,
+    commissioned: false,
     channel: 0,
     pan_id: 0,
     pairing_remaining_s: 0,
+    lqi: 0,
+    lqi_valid: false,
+    parent_addr: 0,
+    parent_depth: 0,
   },
 })
 
@@ -18,10 +23,15 @@ function applyConfig(data) {
   if (typeof data.supported === 'boolean') c.supported = data.supported
   if (typeof data.enabled === 'boolean') c.enabled = data.enabled
   if (typeof data.joined === 'boolean') c.joined = data.joined
+  if (typeof data.commissioned === 'boolean') c.commissioned = data.commissioned
   if (typeof data.channel === 'number') c.channel = data.channel
   if (typeof data.pan_id === 'number') c.pan_id = data.pan_id
   if (typeof data.pairing_remaining_s === 'number')
     c.pairing_remaining_s = data.pairing_remaining_s
+  if (typeof data.lqi === 'number') c.lqi = data.lqi
+  if (typeof data.lqi_valid === 'boolean') c.lqi_valid = data.lqi_valid
+  if (typeof data.parent_addr === 'number') c.parent_addr = data.parent_addr
+  if (typeof data.parent_depth === 'number') c.parent_depth = data.parent_depth
 }
 
 export function initializeZigbee() {

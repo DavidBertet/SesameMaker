@@ -11,7 +11,7 @@
   import { Skeleton } from '$lib/components/ui/skeleton'
   import { Switch } from '$lib/components/ui/switch'
 
-  import { Radio, RadioTower, Save, Link, LogOut, Trash2 } from 'lucide-svelte'
+  import { Radio, RadioTower, Save, Link, LogOut, Trash2, Info } from 'lucide-svelte'
   import { toast } from 'svelte-sonner'
 
   import SectionHeader from 'src/components/common/SectionHeader.svelte'
@@ -24,7 +24,13 @@
     zigbeeLeave,
     zigbeeReset,
   } from 'src/lib/zigbee.svelte.js'
-  import { zigbeeSupported, zigbeeStatusMeta, formatPanId } from 'src/lib/zigbee.js'
+  import {
+    zigbeeSupported,
+    zigbeeStatusMeta,
+    formatPanId,
+    zigbeeLqiLabel,
+    zigbeeParentLabel,
+  } from 'src/lib/zigbee.js'
   import { settingsState } from 'src/lib/settings.svelte.js'
 
   // Used to indicate a password is already saved without ever showing it.
@@ -291,8 +297,8 @@
             Zigbee
           </Card.Title>
           <Card.Description>
-            Join a Zigbee network as plain switches: door, light and remote
-            lockout. Endpoints follow the opener protocol.
+            Join a Zigbee network as plain switches: door, light and remote lockout. Endpoints
+            follow the opener protocol.
           </Card.Description>
         </div>
         {#if zigLoading}
@@ -319,6 +325,12 @@
                 Joined ch {zigbeeState.config.channel} · PAN {formatPanId(
                   zigbeeState.config.pan_id,
                 )}
+                {#if zigbeeState.config.lqi_valid}
+                  · Link {zigbeeState.config.lqi} ({zigbeeLqiLabel(zigbeeState.config.lqi)})
+                  {zigbeeParentLabel(zigbeeState.config)}
+                {/if}
+              {:else if zigbeeState.config.commissioned}
+                Saved network — reconnecting… Leave then pair to join a new network
               {:else}
                 Turn on, then pair with your coordinator
               {/if}
@@ -333,26 +345,37 @@
         </div>
 
         {#if zigbeeState.config.pairing_remaining_s > 0}
-          <p class="text-sm text-muted-foreground">
-            Pairing open for {zigbeeState.config.pairing_remaining_s}s — put your coordinator
-            (ZHA / Zigbee2MQTT) in permit-join now.
-          </p>
+          <div
+            class="flex items-center gap-3 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-900 dark:bg-sky-950 p-4"
+          >
+            <Info class="size-5 shrink-0 text-sky-600 dark:text-sky-400" />
+            <p class="text-sm text-sky-700 dark:text-sky-300">
+              Pairing is open — put your coordinator (ZHA / Zigbee2MQTT) in permit-join now.
+            </p>
+          </div>
         {/if}
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <LoadingButton
             onclick={pairZigbee}
-            disabled={zigBusy || !zigbeeState.config.enabled || zigbeeState.config.joined}
+            disabled={zigBusy ||
+              !zigbeeState.config.enabled ||
+              zigbeeState.config.joined ||
+              zigbeeState.config.commissioned}
             loading={zigBusy}
             loadingLabel="Working…"
             icon={Link}
           >
-            Pair (60s)
+            {#if zigbeeState.config.pairing_remaining_s > 0}
+              Pairing ({zigbeeState.config.pairing_remaining_s}s)
+            {:else}
+              Pair (60s)
+            {/if}
           </LoadingButton>
           <LoadingButton
             variant="outline"
             onclick={leaveZigbee}
-            disabled={zigBusy || !zigbeeState.config.joined}
+            disabled={zigBusy || !(zigbeeState.config.joined || zigbeeState.config.commissioned)}
             loading={zigBusy}
             loadingLabel="Working…"
             icon={LogOut}
@@ -372,8 +395,8 @@
         </div>
 
         <p class="text-xs text-muted-foreground leading-snug">
-          No coordinator nearby? Hold BOOT 3s to open pairing, 10s+ to factory reset. Same
-          actions as the buttons above.
+          No coordinator nearby? Hold BOOT 3s to open pairing, 10s+ to factory reset. Same actions
+          as the buttons above.
         </p>
       {/if}
     </Card.Content>

@@ -37,8 +37,13 @@ typedef struct
 
 static bool s_enabled = false;
 static bool s_joined = false;
+static bool s_commissioned = false;
 static uint16_t s_channel = 0;
 static uint16_t s_pan_id = 0;
+static uint8_t s_lqi = 0;
+static bool s_lqi_valid = false;
+static uint16_t s_parent_addr = 0;
+static uint8_t s_parent_depth = 0;
 static int64_t s_pair_until_us = 0;
 
 static void persist(void)
@@ -88,17 +93,45 @@ bool zigbee_pairing_open(void)
 void zigbee_on_joined(uint16_t channel, uint16_t pan_id)
 {
   s_joined = true;
+  s_commissioned = true;
   s_channel = channel;
   s_pan_id = pan_id;
   s_pair_until_us = 0; // joined: window served its purpose
   broadcast_zigbee_config();
 }
 
+void zigbee_on_commissioned(bool commissioned)
+{
+  if (s_commissioned == commissioned)
+    return;
+  s_commissioned = commissioned;
+  broadcast_zigbee_config();
+}
+
 void zigbee_on_left(void)
 {
   s_joined = false;
+  s_commissioned = false;
   s_channel = 0;
   s_pan_id = 0;
+  s_lqi = 0;
+  s_lqi_valid = false;
+  s_parent_addr = 0;
+  s_parent_depth = 0;
+  broadcast_zigbee_config();
+}
+
+// Parent link from the stack's neighbor-table poll (addr, depth, LQI).
+// Broadcasts only on change so the ~1/min poll doesn't spam WS clients
+// with identical state.
+void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi)
+{
+  if (s_lqi_valid && s_lqi == lqi && s_parent_addr == addr && s_parent_depth == depth)
+    return;
+  s_parent_addr = addr;
+  s_parent_depth = depth;
+  s_lqi = lqi;
+  s_lqi_valid = true;
   broadcast_zigbee_config();
 }
 
@@ -109,8 +142,13 @@ esp_err_t zigbee_get_state(zigbee_state_t *out)
   memset(out, 0, sizeof(*out));
   out->enabled = s_enabled;
   out->joined = s_joined;
+  out->commissioned = s_commissioned;
   out->channel = s_channel;
   out->pan_id = s_pan_id;
+  out->lqi = s_lqi;
+  out->lqi_valid = s_lqi_valid;
+  out->parent_addr = s_parent_addr;
+  out->parent_depth = s_parent_depth;
   int64_t now = esp_timer_get_time();
   out->pairing_remaining_s =
       (s_pair_until_us > now) ? (uint32_t)((s_pair_until_us - now) / 1000000) : 0;
@@ -267,10 +305,11 @@ void zigbee_button_init(void)
 {
   if (ZIGBEE_BOOT_GPIO < 0)
     return;
-  xTaskCreate(zig_button_task, "zig_btn", 2048, NULL, 5, NULL);
+  // Doing boot button sampling & pairing-countdown broadcast path (format_state + WS send)
+  xTaskCreate(zig_button_task, "zig_btn", 4096, NULL, 5, NULL);
 }
 
-#else // !CONFIG_SOC_IEEE802154_SUPPORTED: zero-cost stubs for 2MB classic builds
+#else // !CONFIG_SOC_IEEE802154_SUPPORTED
 
 esp_err_t zigbee_init(void) { return ESP_OK; }
 

@@ -167,6 +167,56 @@ function managePIONewLine(line, spinner) {
   }
 }
 
+// Print the underlying pio failure (the spinner/progress view swallows it).
+// Detects the classic "serial monitor still open" port conflict explicitly.
+function reportUploadFailure(error, what) {
+  const output = `${error.stdout || ''}\n${error.stderr || ''}`.trim()
+  if (output) {
+    const tail = output.split('\n').slice(-25).join('\n')
+    logger.error(`${what} output:`)
+    console.log(tail)
+  } else if (error.error) {
+    logger.error(`${what} error: ${error.error.message}`)
+  }
+  if (/busy|already in use|could not open port|Permission denied/i.test(output)) {
+    logger.warning('The serial port looks busy — close any serial monitor / console')
+    logger.warning('(VS Code monitor, screen, esptool) holding it, then retry.')
+  }
+}
+
+// Stream raw pio output (debug) or spinner + progress parsing (normal).
+async function runUpload({ args, label, target, spinner, doneMessage }) {
+  const backendPath = path.resolve('backend')
+  const pioCmd = await findPIOExecutable()
+  const portArg = args.serialPort ? ` --upload-port "${args.serialPort}"` : ''
+  const command = `"${pioCmd}" run -t ${target}${portArg}`
+
+  if (args.debug) {
+    logger.debug(`Command: ${command}`)
+    console.log(colors.dim + `--- pio ${target} output (debug) ---` + colors.reset)
+    try {
+      await execWithOutput(command, { cwd: backendPath }, (line) => {
+        process.stdout.write(colors.dim + line + colors.reset + '\n')
+      })
+    } catch (error) {
+      reportUploadFailure(error, label)
+      throw error
+    }
+    console.log()
+    return
+  }
+
+  spinner.start()
+  try {
+    await execWithOutput(command, { cwd: backendPath }, (line) => managePIONewLine(line, spinner))
+    spinner.stop(true, doneMessage)
+  } catch (error) {
+    spinner.stop(false, `${label} failed`)
+    reportUploadFailure(error, label)
+    throw error
+  }
+}
+
 async function uploadBackendPIO(args) {
   let backendUploaded = false
 
@@ -177,25 +227,17 @@ async function uploadBackendPIO(args) {
     logger.info('You can upload later with: pio run -t upload')
     backendUploaded = false
   } else {
-    const uploadSpinner = new Spinner('Uploading firmware...')
-    uploadSpinner.start()
-    const backendPath = path.resolve('backend')
+    await runUpload({
+      args,
+      label: 'Firmware upload',
+      target: 'upload',
+      spinner: new Spinner('Uploading firmware...'),
+      doneMessage: 'Firmware uploaded successfully',
+    })
+    backendUploaded = true
 
-    try {
-      const pioCmd = await findPIOExecutable()
-      const portArg = args.serialPort ? ` --upload-port "${args.serialPort}"` : ''
-      await execWithOutput(`"${pioCmd}" run -t upload${portArg}`, { cwd: backendPath }, (line) =>
-        managePIONewLine(line, uploadSpinner),
-      )
-      uploadSpinner.stop(true, 'Firmware uploaded successfully')
-      backendUploaded = true
-
-      // For serial upload, we can't easily detect restart, so just inform the user
-      logger.info('ESP32 should restart automatically with the new firmware')
-    } catch (error) {
-      uploadSpinner.stop(false, 'Firmware upload failed')
-      throw error
-    }
+    // For serial upload, we can't easily detect restart, so just inform the user
+    logger.info('ESP32 should restart automatically with the new firmware')
   }
 
   return backendUploaded
@@ -211,24 +253,14 @@ async function uploadFrontendPIO(args) {
     logger.info('You can upload later with: pio run -t uploadfs')
     frontendUploaded = false
   } else {
-    const frontendSpinner = new Spinner('Uploading frontend...')
-    frontendSpinner.start()
-    const backendPath = path.resolve('backend')
-
-    try {
-      const pioCmd = await findPIOExecutable()
-      const portArg = args.serialPort ? ` --upload-port "${args.serialPort}"` : ''
-      ;(await execWithOutput(
-        `"${pioCmd}" run -t uploadfs${portArg}`,
-        { cwd: backendPath },
-        (line) => managePIONewLine(line, frontendSpinner),
-      ),
-        frontendSpinner.stop(true, 'Frontend uploaded successfully'))
-      frontendUploaded = true
-    } catch (error) {
-      frontendSpinner.stop(false, 'Frontend upload failed')
-      throw error
-    }
+    await runUpload({
+      args,
+      label: 'Frontend upload',
+      target: 'uploadfs',
+      spinner: new Spinner('Uploading frontend...'),
+      doneMessage: 'Frontend uploaded successfully',
+    })
+    frontendUploaded = true
   }
 
   return frontendUploaded
