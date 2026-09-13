@@ -22,8 +22,8 @@ extern "C"
 #define ZB_LQI_PARENT_RELATIONSHIP 0
 // Neighbor entries scanned per response page (ED tables are single-digit).
 #define ZB_LQI_MAX_ENTRIES 16
-// Poll cadence while joined; first poll shortly after join.
-#define ZB_LQI_POLL_MS 60000
+// First poll delay after join; further polls are on demand
+// (zigbee_stack_poll_lqi, e.g. on get_zigbee_config reads).
 #define ZB_LQI_FIRST_MS 5000
 
 // Index of the parent entry, or -1 when no parent is listed.

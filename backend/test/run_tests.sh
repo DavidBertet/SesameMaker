@@ -26,3 +26,6 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_lqi \
 cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_bdb \
     test_zigbee_bdb.c
 /tmp/test_zigbee_bdb
+cc -std=c11 -Wall -Wextra -o /tmp/test_channel_config \
+    test_channel_config.c
+/tmp/test_channel_config

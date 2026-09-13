@@ -2,6 +2,7 @@
 
 #include "zigbee_stack.h"
 
+#include "channel_config.h"
 #include "garage_controller.h"
 #include "protocol_registry.h"
 #include "wifi.h"
@@ -63,7 +64,7 @@ static const char *TAG = "ZB_STACK";
 #define ZB_EP_LIGHT 11
 #define ZB_EP_LOCK 12
 #define ZB_TASK_STACK 8192
-#define ZB_TASK_PRIO 3
+#define ZB_TASK_PRIO 5
 // 802.15.4 TX power in dBm (C6 range -15..+20). Max: the garage is often far
 // from the coordinator/routers and this is a mains-powered device.
 #define ZB_TX_POWER_DBM 20
@@ -74,8 +75,6 @@ static const char *TAG = "ZB_STACK";
 #define ZB_WIFI_WAIT_MAX_MS 15000
 #define ZB_WIFI_WAIT_POLL_MS 500
 
-#define ZB_SCAN_DURATION 4
-
 // Length-prefixed ZCL strings. The length byte is a separate literal:
 // "\x0bD..." would parse as \xBD (D is a hex digit), corrupting the attr.
 #define ZB_MANUFACTURER_NAME "\x0b" \
@@ -84,7 +83,14 @@ static const char *TAG = "ZB_STACK";
                             "SesameMaker"
 
 static bool s_started = false;
-static bool s_ready = false; // esp_zigbee_start() done, timer callbacks safe
+// Written by the ZB task, read by WS/button tasks: mark volatile so the
+// compiler never caches the value across task boundaries.
+static volatile bool s_ready = false; // esp_zigbee_start() done, timer callbacks safe
+
+// Configured scan channel (0 = auto/all, 11..26 = pinned). Set by
+// zigbee.c before the stack task runs; read inside zb_task, so no
+// cross-task synchronization is needed after s_started.
+static uint8_t s_scan_channel = 0;
 
 // Last reported values (dedupe; 0xff = never reported).
 static uint8_t s_last_door = 0xff; // OnOff: 1 = open, 0 = closed
@@ -146,13 +152,20 @@ static void zb_alarm_in(void (*cb)(uint32_t), uint32_t arg, uint32_t ms)
   }
 }
 
-// ---- parent-link LQI poll (Mgmt_Lqi_req to self, ~1/min while joined) ----
+// ---- parent-link LQI poll (Mgmt_Lqi_req to self) ----
 
-static bool s_lqi_polling = false;
+// Set by any task in kick_lqi_poll, cleared by the ZB context callback;
+// volatile keeps the check-and-set from being reordered/cached across tasks.
+static volatile bool s_lqi_polling = false;
+// When the current poll was kicked (esp_timer_get_time). Lets kick_lqi_poll
+// self-heal if the req send fails silently or the rsp never arrives.
+static volatile int64_t s_lqi_kick_us = 0;
+#define ZB_LQI_STUCK_US 15000000
 
 static void lqi_rsp_cb(const ezb_zdo_nwk_mgmt_lqi_req_result_t *result, void *ctx)
 {
   (void)ctx;
+  s_lqi_polling = false;
   if (!result || result->error != EZB_ERR_NONE || !result->rsp ||
       result->rsp->status != 0 || !result->rsp->neighbor_table_list)
   {
@@ -168,7 +181,12 @@ static void lqi_rsp_cb(const ezb_zdo_nwk_mgmt_lqi_req_result_t *result, void *ct
   // Host-tested parent search over the relationship bytes.
   uint8_t relationships[ZB_LQI_MAX_ENTRIES];
   for (uint8_t i = 0; i < count; i++)
-    relationships[i] = result->rsp->neighbor_table_list[i].affinity;
+  {
+    const ezb_zdp_nwk_mgmt_lqi_neighbor_table_entry_t *e = &result->rsp->neighbor_table_list[i];
+    relationships[i] = e->affinity;
+    ESP_LOGD(TAG, "LQI entry %u: addr 0x%04x affinity %u depth %u lqa %u", i, e->nwk_addr,
+             e->affinity, e->device_depth, e->lqa);
+  }
   int idx = zigbee_parent_index(relationships, count);
   if (idx < 0)
   {
@@ -176,7 +194,7 @@ static void lqi_rsp_cb(const ezb_zdo_nwk_mgmt_lqi_req_result_t *result, void *ct
     return;
   }
   const ezb_zdp_nwk_mgmt_lqi_neighbor_table_entry_t *n = &result->rsp->neighbor_table_list[idx];
-  ESP_LOGD(TAG, "LQI poll: parent 0x%04x depth %u lqi=%d", n->nwk_addr, n->device_depth, n->lqa);
+  ESP_LOGI(TAG, "LQI parent 0x%04x depth %u lqa=%d", n->nwk_addr, n->device_depth, n->lqa);
   zigbee_on_parent(n->nwk_addr, n->device_depth, n->lqa);
 }
 
@@ -194,16 +212,35 @@ static void lqi_alarm_cb(uint32_t arg)
       .cb = lqi_rsp_cb,
       .user_ctx = NULL,
   };
-  ezb_zdo_nwk_mgmt_lqi_req(&req);
-  zb_alarm_in(lqi_alarm_cb, 0, ZB_LQI_POLL_MS);
+  if (ezb_zdo_nwk_mgmt_lqi_req(&req) != EZB_ERR_NONE)
+  {
+    s_lqi_polling = false;
+  }
+  // One-shot: the next poll comes from kick_lqi_poll or
+  // zigbee_stack_poll_lqi, never from here.
 }
 
 static void kick_lqi_poll(void)
 {
   if (s_lqi_polling)
-    return;
+  {
+    // Self-heal: req send failed silently or rsp never arrived.
+    if (esp_timer_get_time() - s_lqi_kick_us < ZB_LQI_STUCK_US)
+      return;
+  }
   s_lqi_polling = true;
+  s_lqi_kick_us = esp_timer_get_time();
   zb_alarm_in(lqi_alarm_cb, 0, ZB_LQI_FIRST_MS);
+}
+
+// Request a fresh parent-link reading (e.g. UI opened the card). The
+// reply is async and lands via broadcast_zigbee_config; safe from any
+// task, no-op while unjoined or when one is already in flight.
+void zigbee_stack_poll_lqi(void)
+{
+  if (!s_ready)
+    return;
+  kick_lqi_poll();
 }
 
 // ---- cross-task entries (run with the ZB lock held) ----
@@ -218,7 +255,7 @@ static void steer_alarm_cb(uint32_t mode)
 
 // DEVICE_REBOOT failure retry: re-run INITIALIZATION so the stack re-emits
 // FIRST_START/REBOOT. Attempt count resets on a successful rejoin. Retries
-// forever (fast then 60s cadence, see zigbee_rejoin.h).
+// forever (5s x20 then 30s cadence, see zigbee_rejoin.h).
 static uint32_t s_reboot_attempts = 0;
 
 static void reboot_alarm_cb(uint32_t arg)
@@ -408,7 +445,7 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
         ESP_LOGI(TAG, "Steering failed (bdb=%s 0x%x), retry", bdb, st);
       else
         ESP_LOGI(TAG, "Steering failed (status=0x%x), retry", st);
-      zb_alarm_in(steer_alarm_cb, EZB_BDB_MODE_NETWORK_STEERING, 1000); // retry while window open
+      zb_alarm_in(steer_alarm_cb, EZB_BDB_MODE_NETWORK_STEERING, 500); // retry while window open
     }
     else
     {
@@ -531,9 +568,12 @@ static void zb_task(void *arg)
           },
       },
       .platform_config = {
-          // Persisted to an NVS partition (namespace-isolated from the
-          // app blob).
-          .storage_partition_name = "nvs",
+          // ZBOSS persistence lives in its own dedicated flash partition
+          // (zb_storage, 16 KB) so the network/security dataset never shares
+          // NVS pages with Wi-Fi or the app blob. A full shared NVS would
+          // wedge both radios' storage together and can fail to commit on
+          // every factory reset.
+          .storage_partition_name = "zb_storage",
           .radio_config = {.radio_mode = ESP_ZIGBEE_RADIO_MODE_NATIVE},
       },
   };
@@ -549,8 +589,16 @@ static void zb_task(void *arg)
     ezb_get_tx_power(&applied);
     ESP_LOGI(TAG, "tx_power: requested=%d applied=%d dBm", ZB_TX_POWER_DBM, applied);
   }
-  ezb_bdb_set_scan_duration(ZB_SCAN_DURATION);
+  ezb_bdb_set_scan_duration(zigbee_channel_scan_duration(s_scan_channel));
   ESP_LOGI(TAG, "scan_duration: %u", (unsigned)ezb_bdb_get_scan_duration());
+  // Restrict BDB scanning to the configured channel when one is pinned:
+  // full 16-channel scan on a marginal link misses the beacon response
+  // window. Secondary must match: steering energy-scans BOTH masks, so
+  // leaving the secondary at its default turns every attempt into a ~13s
+  // all-channel energy scan before the parent search even starts.
+  ezb_bdb_set_primary_channel_set(zigbee_channel_mask(s_scan_channel));
+  ezb_bdb_set_secondary_channel_set(zigbee_channel_mask(s_scan_channel));
+  ESP_LOGI(TAG, "bdb_ch_mask: 0x%04x", (unsigned)ezb_bdb_get_primary_channel_set());
   build_endpoints();
   ezb_zcl_core_action_handler_register(zb_action_handler);
   ezb_app_signal_add_handler(ezb_signal_handler);
@@ -574,6 +622,31 @@ void zigbee_stack_start(void)
     return;
   s_started = true;
   xTaskCreate(zb_task, "zb_main", ZB_TASK_STACK, NULL, ZB_TASK_PRIO, NULL);
+}
+
+// Re-apply the BDB scan channel mask + duration from ZB context (BDB reads
+// them at scan time, so a change mid-steering takes effect on the next
+// attempt; they are not read at esp_zigbee_start).
+static void channel_alarm_cb(uint32_t ch)
+{
+  ezb_bdb_set_scan_duration(zigbee_channel_scan_duration((int)ch));
+  ezb_bdb_set_primary_channel_set(zigbee_channel_mask((int)ch));
+  ezb_bdb_set_secondary_channel_set(zigbee_channel_mask((int)ch));
+  ESP_LOGI(TAG, "bdb_ch_mask: 0x%04x", (unsigned)ezb_bdb_get_primary_channel_set());
+}
+
+// Pin Zigbee scanning to a single channel (0 = auto/all). Safe from any
+// task: applied in ZB context via alarm when the stack is already running.
+void zigbee_stack_set_channel(uint8_t channel)
+{
+  if (channel != 0 && (channel < ZB_CHANNEL_CFG_MIN || channel > ZB_CHANNEL_CFG_MAX))
+  {
+    ESP_LOGW(TAG, "Ignoring invalid scan channel %u", (unsigned)channel);
+    return;
+  }
+  s_scan_channel = channel;
+  if (s_ready)
+    zb_alarm_in(channel_alarm_cb, (uint32_t)channel, 100);
 }
 
 void zigbee_stack_pair(void)
@@ -655,9 +728,11 @@ void zigbee_stack_report(const garage_state_t *st)
 #else // !CONFIG_SOC_IEEE802154_SUPPORTED
 
 void zigbee_stack_start(void) {}
+void zigbee_stack_set_channel(uint8_t channel) { (void)channel; }
 void zigbee_stack_pair(void) {}
 void zigbee_stack_leave(void) {}
 void zigbee_stack_factory_reset(void) {}
 void zigbee_stack_report(const garage_state_t *st) { (void)st; }
+void zigbee_stack_poll_lqi(void) {}
 
 #endif

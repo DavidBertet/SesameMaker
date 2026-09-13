@@ -437,7 +437,7 @@ static esp_err_t upload_ota_handler(httpd_req_t *req, const char *session_token)
   // Respond with success message
   httpd_resp_sendstr(req, "Firmware uploaded successfully. Restarting now!");
 
-  xTaskCreate(&restart_task, "restart_task", 2048, NULL, 10, NULL);
+  xTaskCreate(&restart_task, "restart_task", 2048, NULL, 5, NULL);
   return ESP_OK;
 }
 

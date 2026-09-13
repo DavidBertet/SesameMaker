@@ -5,6 +5,7 @@
 
 #include "zigbee.h"
 
+#include "channel_config.h"
 #include "constants.h"
 #include "garage_controller.h"
 #include "storage.h"
@@ -30,12 +31,14 @@ static const char *TAG = "ZIGBEE";
 typedef struct
 {
   uint8_t enabled;
-  uint8_t _reserved[3];
+  uint8_t channel; // 0 = auto (all channels), 11..26 = pinned scan channel
+  uint8_t _reserved[2];
 } zig_persist_t;
 
 #ifdef CONFIG_SOC_IEEE802154_SUPPORTED
 
 static bool s_enabled = false;
+static uint8_t s_channel_cfg = 0; // 0 = auto/all, 11..26 = pinned scan channel
 static bool s_joined = false;
 static bool s_commissioned = false;
 static uint16_t s_channel = 0;
@@ -51,6 +54,7 @@ static void persist(void)
   zig_persist_t p;
   memset(&p, 0, sizeof(p));
   p.enabled = s_enabled ? 1 : 0;
+  p.channel = s_channel_cfg;
   write_blob(ZIG_CFG_KEY, &p, sizeof(p));
 }
 
@@ -63,6 +67,7 @@ static void load(void)
       read_blob(ZIG_CFG_KEY, &p, &n) == ESP_OK)
   {
     s_enabled = p.enabled != 0;
+    s_channel_cfg = zigbee_channel_cfg_valid(p.channel) ? p.channel : 0;
   }
   else
   {
@@ -79,6 +84,7 @@ esp_err_t zigbee_init(void)
     return ESP_OK;
   }
   ESP_LOGI(TAG, "Zigbee enabled, starting stack");
+  zigbee_stack_set_channel(s_channel_cfg);
   zigbee_stack_start();
   return ESP_OK;
 }
@@ -145,6 +151,7 @@ esp_err_t zigbee_get_state(zigbee_state_t *out)
   out->commissioned = s_commissioned;
   out->channel = s_channel;
   out->pan_id = s_pan_id;
+  out->channel_cfg = s_channel_cfg;
   out->lqi = s_lqi;
   out->lqi_valid = s_lqi_valid;
   out->parent_addr = s_parent_addr;
@@ -155,23 +162,56 @@ esp_err_t zigbee_get_state(zigbee_state_t *out)
   return ESP_OK;
 }
 
-esp_err_t zigbee_set_enabled(bool enabled)
+esp_err_t zigbee_apply_config(bool has_enabled, bool enabled,
+                                bool has_channel, uint8_t channel)
 {
-  s_enabled = enabled;
-  if (!enabled)
+  // Validate first: nothing is touched when the channel is invalid.
+  if (has_channel && !zigbee_channel_cfg_valid(channel))
   {
-    s_pair_until_us = 0;
-    if (s_joined)
-      zigbee_stack_leave();
+    ESP_LOGW(TAG, "Invalid scan channel %u", (unsigned)channel);
+    return ESP_ERR_INVALID_ARG;
   }
-  else
+  bool enabled_changed = has_enabled && (enabled != s_enabled);
+  bool channel_changed = has_channel && (channel != s_channel_cfg);
+  if (has_enabled)
   {
-    zigbee_stack_start();
+    s_enabled = enabled;
+    if (!enabled)
+    {
+      s_pair_until_us = 0;
+      if (s_joined)
+        zigbee_stack_leave();
+    }
+    else
+    {
+      zigbee_stack_start();
+    }
   }
+  if (has_channel)
+  {
+    s_channel_cfg = channel;
+    zigbee_stack_set_channel(channel);
+  }
+  if (!enabled_changed && !channel_changed)
+    return ESP_OK;
   persist();
-  ESP_LOGI(TAG, "Zigbee %s", enabled ? "enabled" : "disabled");
+  if (enabled_changed)
+    ESP_LOGI(TAG, "Zigbee %s", s_enabled ? "enabled" : "disabled");
+  if (channel_changed)
+    ESP_LOGI(TAG, "Zigbee scan channel: %s",
+             s_channel_cfg == 0 ? "auto (all channels)" : "pinned");
   broadcast_zigbee_config();
   return ESP_OK;
+}
+
+esp_err_t zigbee_set_enabled(bool enabled)
+{
+  return zigbee_apply_config(true, enabled, false, 0);
+}
+
+esp_err_t zigbee_set_channel(uint8_t channel)
+{
+  return zigbee_apply_config(false, false, true, channel);
 }
 
 esp_err_t zigbee_start_pairing(uint32_t duration_s)
@@ -324,6 +364,22 @@ esp_err_t zigbee_get_state(zigbee_state_t *out)
 esp_err_t zigbee_set_enabled(bool enabled)
 {
   (void)enabled;
+  return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t zigbee_set_channel(uint8_t channel)
+{
+  (void)channel;
+  return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t zigbee_apply_config(bool has_enabled, bool enabled,
+                              bool has_channel, uint8_t channel)
+{
+  (void)has_enabled;
+  (void)enabled;
+  (void)has_channel;
+  (void)channel;
   return ESP_ERR_NOT_SUPPORTED;
 }
 

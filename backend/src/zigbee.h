@@ -19,6 +19,9 @@ typedef struct
   bool commissioned;
   uint16_t channel;
   uint16_t pan_id;
+  // Configured scan channel: 0 = auto (all 16), 11..26 = pinned. read-only
+  // for the UI, settable via set_zigbee_config.
+  uint8_t channel_cfg;
   // Seconds remaining in the pairing window, 0 = closed.
   uint32_t pairing_remaining_s;
   // Parent-link LQI (0-255) from the last neighbor-table poll; valid only
@@ -43,6 +46,15 @@ extern "C"
   esp_err_t zigbee_get_state(zigbee_state_t *out);
 
   esp_err_t zigbee_set_enabled(bool enabled);
+  // Pin the Zigbee scan channel (0 = auto/all, 11..26 = single channel).
+  // Persisted; applied on next stack start and, if the stack is already
+  // running, immediately via the rejoin/steering path.
+  esp_err_t zigbee_set_channel(uint8_t channel);
+  // Combined setter for set_zigbee_config: validates everything first,
+  // then applies with a single NVS persist + single broadcast. Fields
+  // without has_ set are left untouched.
+  esp_err_t zigbee_apply_config(bool has_enabled, bool enabled,
+                                bool has_channel, uint8_t channel);
   // Open the joining window for up to duration_s (clamped internally).
   esp_err_t zigbee_start_pairing(uint32_t duration_s);
   // Leave the network but keep the enabled flag/config.

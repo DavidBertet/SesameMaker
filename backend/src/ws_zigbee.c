@@ -4,6 +4,8 @@
 
 #include "websocket.h"
 #include "zigbee.h"
+#include "zigbee_stack.h"
+#include "channel_config.h"
 
 #include "esp_log.h"
 #include <stdio.h>
@@ -32,12 +34,12 @@ static bool format_state(char *json, size_t len)
     snprintf(json, len,
              "{\"type\":\"zigbee_config\",\"supported\":%s,"
              "\"enabled\":%s,\"joined\":%s,\"commissioned\":%s,"
-             "\"channel\":%u,\"pan_id\":%u,\"pairing_remaining_s\":%lu,"
+             "\"channel\":%u,\"channel_cfg\":%u,\"pan_id\":%u,\"pairing_remaining_s\":%lu,"
              "\"lqi\":%u,\"lqi_valid\":%s,"
-             "\"parent\":%u,\"parent_depth\":%u}",
+             "\"parent_addr\":%u,\"parent_depth\":%u}",
              supported, st.enabled ? "true" : "false",
              st.joined ? "true" : "false", st.commissioned ? "true" : "false",
-             st.channel, st.pan_id,
+             st.channel, st.channel_cfg, st.pan_id,
              (unsigned long)st.pairing_remaining_s,
              st.lqi, st.lqi_valid ? "true" : "false",
              st.parent_addr, st.parent_depth);
@@ -46,6 +48,9 @@ static bool format_state(char *json, size_t len)
 
 static void send_state(int sockfd)
 {
+    // Kick a fresh parent-link reading on every read: the reply carries
+    // last-known values immediately, the poll result follows by broadcast.
+    zigbee_stack_poll_lqi();
     char json[320];
     if (!format_state(json, sizeof(json)))
     {
@@ -84,10 +89,38 @@ void ws_handle_set_zigbee_config(const cJSON *root, int sockfd)
 {
     ESP_LOGI(TAG, "set_zigbee_config");
     cJSON *en = cJSON_GetObjectItem(root, "enabled");
+    bool has_enabled = cJSON_IsBool(en);
     bool enabled = cJSON_IsTrue(en);
-    if (zigbee_set_enabled(enabled) != ESP_OK)
+    cJSON *ch = cJSON_GetObjectItem(root, "channel_cfg");
+    bool has_channel = false;
+    int channel_int = 0;
+    if (ch && cJSON_IsNumber(ch))
+    {
+        // Strict int: reject 11.9-style truncation and out-of-range doubles
+        // before the uint8_t cast (300 would otherwise wrap to 44).
+        if (ch->valuedouble != (double)ch->valueint)
+        {
+            send_error("Zigbee scan channel must be 0 (auto) or 11-26");
+            return;
+        }
+        has_channel = true;
+        channel_int = ch->valueint;
+        if (!zigbee_channel_cfg_valid(channel_int))
+        {
+            send_error("Zigbee scan channel must be 0 (auto) or 11-26");
+            return;
+        }
+    }
+    esp_err_t ret = zigbee_apply_config(has_enabled, enabled,
+                                        has_channel, (uint8_t)channel_int);
+    if (ret == ESP_ERR_NOT_SUPPORTED)
     {
         send_error("Zigbee not supported on this build");
+        return;
+    }
+    if (ret != ESP_OK)
+    {
+        send_error("Zigbee scan channel must be 0 (auto) or 11-26");
         return;
     }
     send_ok("saved", true, sockfd);
