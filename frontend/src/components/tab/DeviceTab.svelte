@@ -133,7 +133,12 @@
       } else {
         toast.error('Zigbee action failed')
       }
-      sendMessage({ type: 'get_zigbee_config' })
+      // No re-get on saved-success: the broadcast already pushed the fresh
+      // state (no-change needs no echo, the requester holds current values).
+      // Re-fetch only to resync after a rejection.
+      if (!(type === 'saved' && data.success)) {
+        sendMessage({ type: 'get_zigbee_config' })
+      }
     }
   }
 

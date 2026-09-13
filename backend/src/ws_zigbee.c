@@ -124,7 +124,10 @@ void ws_handle_set_zigbee_config(const cJSON *root, int sockfd)
         return;
     }
     send_ok("saved", true, sockfd);
-    send_state(sockfd);
+    // No unicast echo: apply already broadcast on change (reaches the
+    // requester too), and no-change means the requester holds current
+    // values. Keep the LQI refresh for the open card.
+    zigbee_stack_poll_lqi();
 }
 
 void ws_handle_zigbee_pair(const cJSON *root, int sockfd)

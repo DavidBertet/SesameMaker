@@ -51,8 +51,8 @@ extern "C"
   // running, immediately via the rejoin/steering path.
   esp_err_t zigbee_set_channel(uint8_t channel);
   // Combined setter for set_zigbee_config: validates everything first,
-  // then applies with a single NVS persist + single broadcast. Fields
-  // without has_ set are left untouched.
+  // then applies with a single NVS persist + single broadcast (only when
+  // something actually changed). Fields without has_ set are untouched.
   esp_err_t zigbee_apply_config(bool has_enabled, bool enabled,
                                 bool has_channel, uint8_t channel);
   // Open the joining window for up to duration_s (clamped internally).
