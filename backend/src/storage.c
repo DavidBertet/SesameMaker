@@ -7,19 +7,55 @@
 #include "esp_log.h"
 
 static const char *NVS_NAMESPACE = "storage";
+static const char *TAG = "STORAGE";
 
 // Long term storage that survives restart
 
-void setup_storage(void)
+// Erase + reinit a named NVS partition when it is full or corrupt.
+// Never aborts: logs and returns the error so boot can continue degraded
+// instead of panic-looping on bad flash.
+static esp_err_t init_nvs(const char *label)
 {
-  // Init NVS
+  esp_err_t ret = nvs_flash_init_partition(label);
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+  {
+    esp_err_t erase = nvs_flash_erase_partition(label);
+    if (erase != ESP_OK)
+    {
+      ESP_LOGE(TAG, "erase %s failed: %s", label, esp_err_to_name(erase));
+      return erase;
+    }
+    ret = nvs_flash_init_partition(label);
+  }
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "init %s failed: %s", label, esp_err_to_name(ret));
+  }
+  return ret;
+}
+
+esp_err_t setup_storage(void)
+{
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
   {
-    ESP_ERROR_CHECK(nvs_flash_erase());
+    esp_err_t erase = nvs_flash_erase();
+    if (erase != ESP_OK)
+    {
+      ESP_LOGE(TAG, "erase nvs failed: %s", esp_err_to_name(erase));
+      return erase;
+    }
     ret = nvs_flash_init();
   }
-  ESP_ERROR_CHECK(ret);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "init nvs failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  // ESP Zigbee SDK v2.x keeps the stack's network/security dataset in its
+  // own NVS partition ("zb_storage", data/nvs) so ZBOSS growth can never
+  // exhaust the partition holding Wi-Fi + app settings.
+  return init_nvs("zb_storage");
 }
 
 esp_err_t read_float(const char *key, float *value, float defaultValue)

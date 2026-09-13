@@ -4,7 +4,10 @@
 
 #include "esp_err.h"
 
-void setup_storage(void);
+// Returns ESP_OK when both partitions are usable. On persistent failure
+// logs and returns the error instead of aborting: the caller boots
+// degraded (defaults) rather than panic-looping on corrupt flash.
+esp_err_t setup_storage(void);
 
 esp_err_t read_float(const char *key, float *value, float defaultValue);
 esp_err_t write_float(const char *key, float value);

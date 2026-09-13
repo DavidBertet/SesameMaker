@@ -67,8 +67,13 @@ void app_main()
   gpio_set_direction(DRY_RELAY_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_level(DRY_RELAY_GPIO, 0);
 
-  // Init NVS storage
-  setup_storage();
+  // Init NVS storage (never aborts: on persistent flash failure boot
+  // continues degraded with defaults instead of panic-looping).
+  esp_err_t storage_ret = setup_storage();
+  if (storage_ret != ESP_OK)
+  {
+    ESP_LOGW(TAG, "storage init failed: %s", esp_err_to_name(storage_ret));
+  }
 
   // Init TCP/IP stack
   ESP_ERROR_CHECK(esp_netif_init());
