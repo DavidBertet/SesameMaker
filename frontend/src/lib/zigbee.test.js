@@ -1,7 +1,15 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
-import { zigbeeSupported, zigbeeStatusMeta, formatPanId, zigbeeLqiLabel, zigbeeParentLabel } from './zigbee.js'
+import {
+  zigbeeSupported,
+  zigbeeStatusMeta,
+  formatPanId,
+  zigbeeLqiLabel,
+  zigbeeParentLabel,
+  zigbeeChannelLabel,
+  ZIGBEE_CHANNEL_OPTIONS,
+} from './zigbee.js'
 
 test('zigbeeSupported gates on settings.features.zigbee', () => {
   assert.equal(zigbeeSupported({}), false)
@@ -61,8 +69,25 @@ test('zigbeeParentLabel names the parent', () => {
     zigbeeParentLabel({ lqi_valid: true, parent_depth: 0, parent_addr: 0 }),
     'via coordinator',
   )
+  // Address wins over depth: 0x0000 is always the coordinator.
+  assert.equal(
+    zigbeeParentLabel({ lqi_valid: true, parent_depth: 1, parent_addr: 0 }),
+    'via coordinator',
+  )
   assert.equal(
     zigbeeParentLabel({ lqi_valid: true, parent_depth: 1, parent_addr: 0x1234 }),
     'via 0x1234',
   )
+})
+
+test('zigbeeChannelLabel + options cover auto and single channels', () => {
+  assert.equal(zigbeeChannelLabel(0), 'Auto (all channels)')
+  assert.equal(zigbeeChannelLabel(11), 'Channel 11')
+  assert.equal(zigbeeChannelLabel(26), 'Channel 26')
+  // Options = 0 (auto) + the full 11..26 range.
+  assert.equal(ZIGBEE_CHANNEL_OPTIONS[0], 0)
+  assert.equal(ZIGBEE_CHANNEL_OPTIONS.length, 17)
+  assert.deepEqual(ZIGBEE_CHANNEL_OPTIONS.slice(1), [
+    ...Array.from({ length: 16 }, (_, i) => i + 11),
+  ])
 })

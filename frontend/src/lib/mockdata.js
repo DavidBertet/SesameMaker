@@ -265,8 +265,9 @@ export function generateMockResponse(data) {
       return [{ type: 'zigbee_config', ...zigbee }]
 
     case 'set_zigbee_config':
-      zigbee.enabled = !!data.enabled
+      if (typeof data.enabled === 'boolean') zigbee.enabled = data.enabled
       if (!zigbee.enabled) zigbee.pairing_remaining_s = 0
+      if (typeof data.channel_cfg === 'number') zigbee.channel_cfg = data.channel_cfg
       return [
         { type: 'zigbee_saved', success: true },
         { type: 'zigbee_config', ...zigbee },
@@ -372,6 +373,7 @@ let zigbee = {
   joined: false,
   commissioned: false,
   channel: 0,
+  channel_cfg: 0,
   pan_id: 0,
   pairing_remaining_s: 0,
   lqi: 0,

@@ -10,6 +10,7 @@
   import { Badge } from '$lib/components/ui/badge'
   import { Skeleton } from '$lib/components/ui/skeleton'
   import { Switch } from '$lib/components/ui/switch'
+  import { Select, SelectTrigger, SelectContent, SelectItem } from '$lib/components/ui/select'
 
   import { Radio, RadioTower, Save, Link, LogOut, Trash2, Info } from 'lucide-svelte'
   import { toast } from 'svelte-sonner'
@@ -20,6 +21,7 @@
     zigbeeState,
     initializeZigbee,
     saveZigbeeConfig,
+    saveZigbeeChannel,
     zigbeePair,
     zigbeeLeave,
     zigbeeReset,
@@ -30,6 +32,8 @@
     formatPanId,
     zigbeeLqiLabel,
     zigbeeParentLabel,
+    ZIGBEE_CHANNEL_OPTIONS,
+    zigbeeChannelLabel,
   } from 'src/lib/zigbee.js'
   import { settingsState } from 'src/lib/settings.svelte.js'
 
@@ -155,6 +159,11 @@
     }
   }
 
+  function handleChannelChange(value) {
+    setZigBusy(true)
+    saveZigbeeChannel(Number(value))
+  }
+
   onMount(() => {
     const u1 = initializeMqtt()
     const u2 = onMessageType('mqtt_config', syncFormFromConfig)
@@ -168,7 +177,7 @@
     // Backend rejections come as generic errors (e.g. Zigbee unsupported on
     // this build) — unlock the buttons instead of spinning forever.
     const u10 = onMessageType('error', () => setZigBusy(false))
-    unsubs = [u1, u2, u3, u4, u5, u6, u7, u8, u10]
+    unsubs = [u1, u2, u3, u4, u5, u6, u7, u8, u9, u10]
 
     return () => {
       unsubs.forEach((u) => u())
@@ -176,7 +185,6 @@
   })
 
   onDestroy(() => {
-    unsubs.forEach((u) => u())
     if (zigTimeout) clearTimeout(zigTimeout)
   })
 </script>
@@ -342,6 +350,35 @@
             disabled={zigBusy}
             aria-label="Enable Zigbee"
           />
+        </div>
+
+        <div class="flex items-center justify-between rounded-lg border p-3">
+          <div class="space-y-0.5">
+            <Label class="font-medium">Scan channel</Label>
+            <p class="text-xs text-muted-foreground">
+              Pinned channel scans faster and reaches farther on a weak link; Auto scans all 16.
+              {#if zigbeeState.config.joined}
+                Leave the network to change it.
+              {/if}
+            </p>
+          </div>
+          <span title={zigbeeState.config.joined ? 'Leave the network to change the scan channel' : undefined}>
+            <Select
+              type="single"
+              value={`${zigbeeState.config.channel_cfg}`}
+              onValueChange={handleChannelChange}
+              disabled={zigBusy || zigbeeState.config.joined}
+            >
+            <SelectTrigger class="w-44" aria-label="Scan channel">
+              {zigbeeChannelLabel(zigbeeState.config.channel_cfg)}
+            </SelectTrigger>
+            <SelectContent>
+              {#each ZIGBEE_CHANNEL_OPTIONS as ch}
+                <SelectItem value={`${ch}`}>{zigbeeChannelLabel(ch)}</SelectItem>
+              {/each}
+            </SelectContent>
+            </Select>
+          </span>
         </div>
 
         {#if zigbeeState.config.pairing_remaining_s > 0}
