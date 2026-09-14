@@ -3,3 +3,6 @@
 ## (gitignored) — never vendor binaries into backend/components/.
 dependencies:
   espressif/esp-zigbee-lib: '==2.0.4'
+  # mDNS responder for HomeKit _hap._tcp advertising (IDF 5.x moved it
+  # out of core; version pinned like everything else).
+  espressif/mdns: '==1.12.0'

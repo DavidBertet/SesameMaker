@@ -1,9 +1,12 @@
 # SesameMaker shared layout (4MB flash): OTA slots ~1.69MB each leave room
-# for the app to grow (Zigbee stack, web UI), SPIFFS keeps 576KB for web files.
+# for the app to grow (Zigbee stack, HomeKit, web UI), SPIFFS keeps 528KB
+# for web files (content is ~149KB).
 # Used by every env — all our boards (classic ESP32, C3, C6) ship 4MB+ flash.
 # zb_storage (data/nvs, ESP Zigbee SDK v2.x) holds the ZBOSS network dataset.
 # zb_fct (data/fat) is reserved for mass-manufacturing factory config;
 # kept at fixed offsets so app + SPIFFS offsets never move.
+# hk_storage (data/nvs) holds the HomeKit pairing database + setup code,
+# isolated like zb_storage so HomeKit growth never touches app storage.
 # NOTE: spiffs must be LAST for pio to pick the right to upload frontend to
 # Name,     Type, SubType, Offset,   Size, Flags
 nvs,        data, nvs,     0x9000,   0x4000,
@@ -13,4 +16,5 @@ ota_0,      app,  ota_0,   0x10000,  0x1B0000,
 ota_1,      app,  ota_1,   0x1C0000, 0x1B0000,
 zb_storage, data, nvs,     0x370000, 0x4000,
 zb_fct,     data, fat,     0x374000, 0x4000,
-spiffs,     data, spiffs,  0x378000, 0x88000,
+hk_storage, data, nvs,     0x378000, 0x4000,
+spiffs,     data, spiffs,  0x37C000, 0x84000,

@@ -54,8 +54,11 @@ esp_err_t setup_storage(void)
   }
   // ESP Zigbee SDK v2.x keeps the stack's network/security dataset in its
   // own NVS partition ("zb_storage", data/nvs) so ZBOSS growth can never
-  // exhaust the partition holding Wi-Fi + app settings.
-  return init_nvs("zb_storage");
+  // exhaust the partition holding Wi-Fi + app settings. Same pattern for
+  // HomeKit ("hk_storage"): pairing database + setup code, isolated.
+  esp_err_t ret_zb = init_nvs("zb_storage");
+  esp_err_t ret_hk = init_nvs("hk_storage");
+  return (ret_zb != ESP_OK) ? ret_zb : ret_hk;
 }
 
 esp_err_t read_float(const char *key, float *value, float defaultValue)
