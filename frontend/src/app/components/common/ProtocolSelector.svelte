@@ -5,10 +5,10 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import { protocolState, dryCfg, saveProtocol } from 'src/lib/door.svelte.js'
-  import { zigbeeState, initializeZigbee } from 'src/lib/zigbee.svelte.js'
-  import { onMessageType } from 'src/lib/ws.svelte.js'
-  import LoadingButton from 'src/components/common/LoadingButton.svelte'
+  import { protocolState, dryCfg, saveProtocol } from 'src/app/lib/door.svelte.js'
+  import { zigbeeState, initializeZigbee } from 'src/core/lib/zigbee.svelte.js'
+  import { onMessageType } from 'src/core/lib/ws.svelte.js'
+  import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import * as Card from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'
   import { Input } from '$lib/components/ui/input'

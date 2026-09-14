@@ -7,7 +7,7 @@
   import { Skeleton } from '$lib/components/ui/skeleton'
   import { Wifi, WifiOff, Shield, Users, MapPin, Hash } from 'lucide-svelte'
 
-  import SignalBars from 'src/components/wifi/SignalBars.svelte'
+  import SignalBars from 'src/core/components/wifi/SignalBars.svelte'
 
   let { status = null, loading = false, getSignalStrength, onDisconnect } = $props()
 </script>

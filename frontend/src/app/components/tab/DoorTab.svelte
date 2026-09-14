@@ -2,8 +2,8 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import SectionHeader from 'src/components/common/SectionHeader.svelte'
-  import LoadingButton from 'src/components/common/LoadingButton.svelte'
+  import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import {
     garageState,
     initializeGarage,
@@ -12,8 +12,8 @@
     lockCommand,
     syncGarage,
     pendingCommands,
-  } from 'src/lib/door.svelte.js'
-  import { doorMeta, isSettled } from 'src/lib/garage.js'
+  } from 'src/app/lib/door.svelte.js'
+  import { doorMeta, isSettled } from 'src/app/lib/garage.js'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'

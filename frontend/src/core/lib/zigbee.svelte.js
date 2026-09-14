@@ -1,5 +1,5 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
-import { onMessageType, sendMessage } from 'src/lib/ws.svelte.js'
+import { onMessageType, sendMessage } from 'src/core/lib/ws.svelte.js'
 
 // Zigbee bridge state (C6 builds only; hidden otherwise via settings.features)
 export const zigbeeState = $state({

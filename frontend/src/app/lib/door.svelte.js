@@ -1,6 +1,11 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
-import { onMessageType, sendMessage } from 'src/lib/ws.svelte.js'
-import { parseGarageStatus, optimisticLight, optimisticLock, FULL_CAPS } from 'src/lib/garage.js'
+import { onMessageType, sendMessage } from 'src/core/lib/ws.svelte.js'
+import {
+  parseGarageStatus,
+  optimisticLight,
+  optimisticLock,
+  FULL_CAPS,
+} from 'src/app/lib/garage.js'
 
 export const garageState = $state({
   protocol: 'secplus1',

@@ -3,7 +3,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import { slide } from 'svelte/transition'
-  import { sendMessage, onMessageType } from 'src/lib/ws.svelte.js'
+  import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import { Terminal, X, Trash2 } from 'lucide-svelte'
 
   let open = $state(false)

@@ -1,4 +1,4 @@
-import { onMessageType, sendMessage } from 'src/lib/ws.svelte.js'
+import { onMessageType, sendMessage } from 'src/core/lib/ws.svelte.js'
 
 // MQTT bridge config state
 export const mqttState = $state({

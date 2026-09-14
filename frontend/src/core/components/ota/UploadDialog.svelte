@@ -10,8 +10,8 @@
 
   import { CheckCircle, AlertCircle, Clock, Upload, Lock } from 'lucide-svelte'
 
-  import { wsState, onMessageType } from 'src/lib/ws.svelte.js'
-  import { settingsState } from 'src/lib/settings.svelte.js'
+  import { wsState, onMessageType } from 'src/core/lib/ws.svelte.js'
+  import { settingsState } from 'src/core/lib/settings.svelte.js'
   import PasswordDialog from './PasswordDialog.svelte'
 
   let { files, onUploadComplete = () => {} } = $props()

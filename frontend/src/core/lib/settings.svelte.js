@@ -1,4 +1,4 @@
-import { onMessageType, sendMessage } from 'src/lib/ws.svelte.js'
+import { onMessageType, sendMessage } from 'src/core/lib/ws.svelte.js'
 
 // Settings state
 export const settingsState = $state({})

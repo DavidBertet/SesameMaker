@@ -2,9 +2,9 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import { wsState, sendMessage, onMessageType } from 'src/lib/ws.svelte.js'
+  import { wsState, sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import { Button } from '$lib/components/ui/button'
-  import LoadingButton from 'src/components/common/LoadingButton.svelte'
+  import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import * as Card from '$lib/components/ui/card'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
@@ -12,7 +12,7 @@
   import * as Alert from '$lib/components/ui/alert'
   import { RefreshCw, Wifi, Search } from 'lucide-svelte'
 
-  import WifiNetworkList from 'src/components/wifi/WifiNetworkList.svelte'
+  import WifiNetworkList from 'src/core/components/wifi/WifiNetworkList.svelte'
 
   // Props
   let { getSignalStrength } = $props()

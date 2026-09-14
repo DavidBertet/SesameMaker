@@ -2,8 +2,8 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import SectionHeader from 'src/components/common/SectionHeader.svelte'
-  import ProtocolSelector from 'src/components/common/ProtocolSelector.svelte'
+  import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import ProtocolSelector from 'src/app/components/common/ProtocolSelector.svelte'
   import {
     garageState,
     protocolState,
@@ -15,8 +15,8 @@
     lightCommand,
     lockCommand,
     syncGarage,
-  } from 'src/lib/door.svelte.js'
-  import { decodeByte, decodeDoorResp } from 'src/lib/garage.js'
+  } from 'src/app/lib/door.svelte.js'
+  import { decodeByte, decodeDoorResp } from 'src/app/lib/garage.js'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'

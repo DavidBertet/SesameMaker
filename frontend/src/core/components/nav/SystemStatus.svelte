@@ -6,7 +6,7 @@
 
   import { AlertTriangle, Clock } from 'lucide-svelte'
 
-  import { settingsState } from 'src/lib/settings.svelte.js'
+  import { settingsState } from 'src/core/lib/settings.svelte.js'
 
   const systemState = $derived.by(() => {
     if (!settingsState.wifi) return null

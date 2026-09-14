@@ -2,7 +2,7 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import { wsState, sendMessage, onMessageType } from 'src/lib/ws.svelte.js'
+  import { wsState, sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
@@ -12,9 +12,9 @@
 
   import { RefreshCw, Activity, AlertTriangle } from 'lucide-svelte'
 
-  import SectionHeader from 'src/components/common/SectionHeader.svelte'
-  import WifiStatusCard from 'src/components/wifi/WifiStatusCard.svelte'
-  import WifiConnectCard from 'src/components/wifi/WifiConnectCard.svelte'
+  import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import WifiStatusCard from 'src/core/components/wifi/WifiStatusCard.svelte'
+  import WifiConnectCard from 'src/core/components/wifi/WifiConnectCard.svelte'
 
   let wifiStatus = $state(null)
   let wifiStatusLoading = $state(true)

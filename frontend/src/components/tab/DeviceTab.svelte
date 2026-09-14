@@ -2,8 +2,8 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import { sendMessage, onMessageType } from 'src/lib/ws.svelte.js'
-  import LoadingButton from 'src/components/common/LoadingButton.svelte'
+  import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
+  import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import * as Card from '$lib/components/ui/card'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
@@ -15,8 +15,8 @@
   import { Radio, RadioTower, Save, Link, LogOut, Trash2, Info } from 'lucide-svelte'
   import { toast } from 'svelte-sonner'
 
-  import SectionHeader from 'src/components/common/SectionHeader.svelte'
-  import { mqttState, initializeMqtt, saveMqttConfig } from 'src/lib/mqtt.svelte.js'
+  import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import { mqttState, initializeMqtt, saveMqttConfig } from 'src/core/lib/mqtt.svelte.js'
   import {
     zigbeeState,
     initializeZigbee,
@@ -25,7 +25,7 @@
     zigbeePair,
     zigbeeLeave,
     zigbeeReset,
-  } from 'src/lib/zigbee.svelte.js'
+  } from 'src/core/lib/zigbee.svelte.js'
   import {
     zigbeeSupported,
     zigbeeStatusMeta,
@@ -34,8 +34,8 @@
     zigbeeParentLabel,
     ZIGBEE_CHANNEL_OPTIONS,
     zigbeeChannelLabel,
-  } from 'src/lib/zigbee.js'
-  import { settingsState } from 'src/lib/settings.svelte.js'
+  } from 'src/core/lib/zigbee.js'
+  import { settingsState } from 'src/core/lib/settings.svelte.js'
 
   // Used to indicate a password is already saved without ever showing it.
   const PASSWORD_SENTINEL = '••••••••'
@@ -367,21 +367,25 @@
               {/if}
             </p>
           </div>
-          <span title={zigbeeState.config.joined ? 'Leave the network to change the scan channel' : undefined}>
+          <span
+            title={zigbeeState.config.joined
+              ? 'Leave the network to change the scan channel'
+              : undefined}
+          >
             <Select
               type="single"
               value={`${zigbeeState.config.channel_cfg}`}
               onValueChange={handleChannelChange}
               disabled={zigBusy || zigbeeState.config.joined}
             >
-            <SelectTrigger class="w-44" aria-label="Scan channel">
-              {zigbeeChannelLabel(zigbeeState.config.channel_cfg)}
-            </SelectTrigger>
-            <SelectContent>
-              {#each ZIGBEE_CHANNEL_OPTIONS as ch}
-                <SelectItem value={`${ch}`}>{zigbeeChannelLabel(ch)}</SelectItem>
-              {/each}
-            </SelectContent>
+              <SelectTrigger class="w-44" aria-label="Scan channel">
+                {zigbeeChannelLabel(zigbeeState.config.channel_cfg)}
+              </SelectTrigger>
+              <SelectContent>
+                {#each ZIGBEE_CHANNEL_OPTIONS as ch}
+                  <SelectItem value={`${ch}`}>{zigbeeChannelLabel(ch)}</SelectItem>
+                {/each}
+              </SelectContent>
             </Select>
           </span>
         </div>

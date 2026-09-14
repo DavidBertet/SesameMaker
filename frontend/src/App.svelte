@@ -1,19 +1,19 @@
 <!-- Copyright (c) 2026 David Bertet. Licensed under the MIT License. -->
 
 <script>
-  import SystemTab from 'src/components/tab/SystemTab.svelte'
-  import DoorTab from 'src/components/tab/DoorTab.svelte'
-  import ProtocolTab from 'src/components/tab/ProtocolTab.svelte'
-  import WifiTab from 'src/components/tab/WifiTab.svelte'
+  import SystemTab from 'src/core/components/tab/SystemTab.svelte'
+  import DoorTab from 'src/app/components/tab/DoorTab.svelte'
+  import ProtocolTab from 'src/app/components/tab/ProtocolTab.svelte'
+  import WifiTab from 'src/core/components/tab/WifiTab.svelte'
   import DeviceTab from 'src/components/tab/DeviceTab.svelte'
-  import WebsocketStatus from 'src/components/common/WebsocketStatus.svelte'
-  import SystemStatus from 'src/components/nav/SystemStatus.svelte'
-  import UploadButton from 'src/components/ota/UploadButton.svelte'
-  import SidebarNav from 'src/components/nav/SidebarNav.svelte'
-  import DarkModeToggle from 'src/components/common/DarkModeToggle.svelte'
-  import DisconnectedOverlay from 'src/components/nav/DisconnectedOverlay.svelte'
-  import DemoPill from 'src/components/common/DemoPill.svelte'
-  import DebugConsole from 'src/components/common/DebugConsole.svelte'
+  import WebsocketStatus from 'src/core/components/common/WebsocketStatus.svelte'
+  import SystemStatus from 'src/core/components/nav/SystemStatus.svelte'
+  import UploadButton from 'src/core/components/ota/UploadButton.svelte'
+  import SidebarNav from 'src/core/components/nav/SidebarNav.svelte'
+  import DarkModeToggle from 'src/core/components/common/DarkModeToggle.svelte'
+  import DisconnectedOverlay from 'src/core/components/nav/DisconnectedOverlay.svelte'
+  import DemoPill from 'src/core/components/common/DemoPill.svelte'
+  import DebugConsole from 'src/core/components/common/DebugConsole.svelte'
 
   import { onMount, onDestroy } from 'svelte'
   import {
@@ -22,8 +22,8 @@
     closeWebSocket,
     sendMessage,
     onMessageType,
-  } from 'src/lib/ws.svelte.js'
-  import { initializeSettings } from 'src/lib/settings.svelte.js'
+  } from 'src/core/lib/ws.svelte.js'
+  import { initializeSettings } from 'src/core/lib/settings.svelte.js'
 
   import * as Sidebar from '$lib/components/ui/sidebar'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'

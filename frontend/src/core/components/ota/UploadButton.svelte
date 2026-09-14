@@ -3,7 +3,7 @@
 <script>
   import { Button } from '$lib/components/ui/button'
   import { Upload } from 'lucide-svelte'
-  import UploadDialog from 'src/components/ota/UploadDialog.svelte'
+  import UploadDialog from 'src/core/components/ota/UploadDialog.svelte'
 
   let { ...restProps } = $props()
 

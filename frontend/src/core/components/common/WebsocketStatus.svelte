@@ -6,7 +6,7 @@
 
   import { Cloud, CloudOff } from 'lucide-svelte'
 
-  import { wsState } from 'src/lib/ws.svelte.js'
+  import { wsState } from 'src/core/lib/ws.svelte.js'
 </script>
 
 <Badge

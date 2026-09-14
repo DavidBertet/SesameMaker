@@ -7,7 +7,7 @@
 
   import { Lock, Wifi } from 'lucide-svelte'
 
-  import SignalBars from 'src/components/wifi/SignalBars.svelte'
+  import SignalBars from 'src/core/components/wifi/SignalBars.svelte'
 
   let { networks = [], selectedNetwork = $bindable(''), getSignalStrength } = $props()
 

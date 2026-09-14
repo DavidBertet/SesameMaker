@@ -1,6 +1,6 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-import { shouldQueueMessage, drainQueue } from 'src/lib/wsqueue.js'
+import { shouldQueueMessage, drainQueue } from 'src/core/lib/wsqueue.js'
 
 if (import.meta.env.MODE === 'github') {
   // Import mock only in github build

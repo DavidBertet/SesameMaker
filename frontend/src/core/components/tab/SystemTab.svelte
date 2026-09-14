@@ -2,12 +2,12 @@
 
 <script>
   import { onMount, onDestroy } from 'svelte'
-  import { sendMessage, onMessageType } from 'src/lib/ws.svelte.js'
+  import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import * as Card from '$lib/components/ui/card'
   import { Separator } from '$lib/components/ui/separator'
   import { Skeleton } from '$lib/components/ui/skeleton'
 
-  import SectionHeader from 'src/components/common/SectionHeader.svelte'
+  import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
 
   let settingsUnsub = $state(null)
   let settings = $state([])
