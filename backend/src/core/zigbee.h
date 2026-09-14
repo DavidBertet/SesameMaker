@@ -53,8 +53,10 @@ typedef struct
   // Length-prefixed ZCL strings ("\\x0b" "Manufacturer").
   const char *manufacturer_name;
   const char *model_identifier;
-  // Inbound On/Off command for one of our endpoints (on = active).
-  void (*on_onoff_cmd)(uint8_t ep, bool on);
+  // Inbound attribute write for one of our endpoints. value points at
+  // zb_attr_type_size(type) little-endian bytes (ZCL wire order).
+  void (*on_attr_write)(uint8_t ep, uint16_t cluster_id, uint16_t attr_id,
+                        zb_attr_type_t type, const void *value);
   // Push the current device state into zb_transport_report_onoff calls.
   // Invoked by zigbee_report_state(); transport dedupes, so repeats are free.
   void (*report_state)(void);

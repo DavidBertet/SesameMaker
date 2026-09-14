@@ -15,6 +15,9 @@
 #ifdef CONFIG_SOC_IEEE802154_SUPPORTED
 // Device-ID constants for our endpoint table (transport builds the rest).
 #include "ezbee/zha.h"
+// On/Off cluster + attribute IDs for the generic attr handlers below.
+#include "ezbee/zcl/cluster/on_off_desc.h"
+#include "ezbee/zcl/zcl_type.h"
 #endif
 
 static const char *TAG = "ZIGBEE_GARAGE";
@@ -48,8 +51,15 @@ static size_t garage_build_table(zb_endpoint_desc_t *out, size_t max)
   return n;
 }
 
-static void garage_on_onoff_cmd(uint8_t ep, bool on)
+static void garage_on_attr_write(uint8_t ep, uint16_t cluster_id,
+                                 uint16_t attr_id, zb_attr_type_t type,
+                                 const void *value)
 {
+  if (cluster_id != EZB_ZCL_CLUSTER_ID_ON_OFF ||
+      attr_id != EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID || type != ZB_ATTR_BOOL ||
+      !value)
+    return;
+  bool on = *(const bool *)value;
   if (ep == ZB_EP_DOOR)
   {
     ESP_LOGI(TAG, "Door %s", on ? "open" : "close");
@@ -71,6 +81,13 @@ static void garage_on_onoff_cmd(uint8_t ep, bool on)
   }
 }
 
+static void garage_report_bool(uint8_t ep, bool on)
+{
+  uint8_t val = on ? 1 : 0;
+  zb_transport_report_attr(ep, EZB_ZCL_CLUSTER_ID_ON_OFF,
+                           EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, ZB_ATTR_U8, &val);
+}
+
 static void garage_report_state(void)
 {
   garage_state_t st;
@@ -80,17 +97,17 @@ static void garage_report_state(void)
   // Moving/unknown: not reported, the end state reports on arrival
   // (transport dedupes, so repeats are free).
   if (st.door_state == SECPLUS1_DOOR_OPEN)
-    zb_transport_report_onoff(ZB_EP_DOOR, true);
+    garage_report_bool(ZB_EP_DOOR, true);
   else if (st.door_state == SECPLUS1_DOOR_CLOSED)
-    zb_transport_report_onoff(ZB_EP_DOOR, false);
+    garage_report_bool(ZB_EP_DOOR, false);
   if (st.light_state == GARAGE_LIGHT_ON)
-    zb_transport_report_onoff(ZB_EP_LIGHT, true);
+    garage_report_bool(ZB_EP_LIGHT, true);
   else if (st.light_state == GARAGE_LIGHT_OFF)
-    zb_transport_report_onoff(ZB_EP_LIGHT, false);
+    garage_report_bool(ZB_EP_LIGHT, false);
   if (st.lock_state == GARAGE_LOCK_LOCKED)
-    zb_transport_report_onoff(ZB_EP_LOCK, true);
+    garage_report_bool(ZB_EP_LOCK, true);
   else if (st.lock_state == GARAGE_LOCK_UNLOCKED)
-    zb_transport_report_onoff(ZB_EP_LOCK, false);
+    garage_report_bool(ZB_EP_LOCK, false);
 }
 
 void zigbee_garage_register(void)
@@ -99,7 +116,7 @@ void zigbee_garage_register(void)
       .build_table = garage_build_table,
       .manufacturer_name = ZB_MANUFACTURER_NAME,
       .model_identifier = ZB_MODEL_IDENTIFIER,
-      .on_onoff_cmd = garage_on_onoff_cmd,
+      .on_attr_write = garage_on_attr_write,
       .report_state = garage_report_state,
   };
   zigbee_register_device(&dev);

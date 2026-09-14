@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef CONFIG_SOC_IEEE802154_SUPPORTED
 
@@ -87,13 +88,18 @@ static bool app_pairing_open(void)
   return s_app_bound && s_app.pairing_open && s_app.pairing_open();
 }
 
-// Last latched value per endpoint slot (dedupe; valid=false = never).
-// Slots follow registration order; reports for unknown endpoints are dropped.
+// Last latched value per attribute slot (dedupe; valid=false = never).
+// Slots follow first-report order; reports for unregistered endpoints
+// are dropped by the caller.
+#define ZB_TRANSPORT_VALUE_MAX 4
 static struct
 {
   bool valid;
   uint8_t ep;
-  uint8_t val;
+  uint16_t cluster_id;
+  uint16_t attr_id;
+  uint8_t size;
+  uint8_t val[ZB_TRANSPORT_VALUE_MAX];
 } s_last[ZB_TRANSPORT_MAX_ENDPOINTS];
 
 // Pending attribute snapshot, applied in ZB context by report_alarm_cb.
@@ -101,7 +107,9 @@ static struct
 {
   bool has;
   uint8_t ep;
-  uint8_t val;
+  uint16_t cluster_id;
+  uint16_t attr_id;
+  uint8_t val[ZB_TRANSPORT_VALUE_MAX];
 } s_pending[ZB_TRANSPORT_MAX_ENDPOINTS];
 
 // ---- deferred ZB work (esp_timer one-shot + ZB lock) ----
@@ -298,25 +306,68 @@ static void report_alarm_cb(uint32_t arg)
   {
     if (!s_pending[i].has)
       continue;
-    ezb_zcl_set_attr_value(s_pending[i].ep, EZB_ZCL_CLUSTER_ID_ON_OFF,
+    ezb_zcl_set_attr_value(s_pending[i].ep, s_pending[i].cluster_id,
                            EZB_ZCL_CLUSTER_SERVER,
-                           EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID,
-                           EZB_ZCL_STD_MANUF_CODE, &s_pending[i].val, false);
+                           s_pending[i].attr_id,
+                           EZB_ZCL_STD_MANUF_CODE, s_pending[i].val, false);
     s_pending[i].has = false;
   }
 }
 
 // ---- inbound commands ----
 
-static void handle_onoff(const ezb_zcl_set_attr_value_message_t *m)
+// Map the stack's ZCL data type onto our routing vocabulary. Aliases with
+// identical wire layout (enums, maps, ids, time) fold into the matching
+// integer width; everything else is UNKNOWN (dropped with a log).
+static zb_attr_type_t map_attr_type(unsigned ezb_type)
 {
-  if (m->info.cluster_id != EZB_ZCL_CLUSTER_ID_ON_OFF ||
-      m->in.attribute.id != EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID ||
-      m->in.attribute.data.type != EZB_ZCL_ATTR_TYPE_BOOL || !m->in.attribute.data.value)
+  switch (ezb_type)
+  {
+  case EZB_ZCL_ATTR_TYPE_BOOL:
+    return ZB_ATTR_BOOL;
+  case EZB_ZCL_ATTR_TYPE_UINT8:
+  case EZB_ZCL_ATTR_TYPE_ENUM8:
+  case EZB_ZCL_ATTR_TYPE_MAP8:
+    return ZB_ATTR_U8;
+  case EZB_ZCL_ATTR_TYPE_INT8:
+    return ZB_ATTR_S8;
+  case EZB_ZCL_ATTR_TYPE_UINT16:
+  case EZB_ZCL_ATTR_TYPE_ENUM16:
+  case EZB_ZCL_ATTR_TYPE_MAP16:
+  case EZB_ZCL_ATTR_TYPE_ATTRIBUTE_ID:
+  case EZB_ZCL_ATTR_TYPE_CLUSTER_ID:
+    return ZB_ATTR_U16;
+  case EZB_ZCL_ATTR_TYPE_INT16:
+    return ZB_ATTR_S16;
+  case EZB_ZCL_ATTR_TYPE_UINT32:
+  case EZB_ZCL_ATTR_TYPE_UTC:
+  case EZB_ZCL_ATTR_TYPE_DATE:
+    return ZB_ATTR_U32;
+  case EZB_ZCL_ATTR_TYPE_INT32:
+    return ZB_ATTR_S32;
+  case EZB_ZCL_ATTR_TYPE_SINGLE:
+    return ZB_ATTR_FLOAT;
+  default:
+    return ZB_ATTR_UNKNOWN;
+  }
+}
+
+static void handle_attr(const ezb_zcl_set_attr_value_message_t *m)
+{
+  if (!m->in.attribute.data.value)
     return;
-  if (!s_app_bound || !s_app.on_onoff_cmd)
+  zb_attr_type_t type = map_attr_type(m->in.attribute.data.type);
+  if (type == ZB_ATTR_UNKNOWN)
+  {
+    ESP_LOGW(TAG, "Attr write ep %u cl 0x%04x attr 0x%04x type 0x%02x unsupported",
+             (unsigned)m->info.dst_ep, (unsigned)m->info.cluster_id,
+             (unsigned)m->in.attribute.id, (unsigned)m->in.attribute.data.type);
     return;
-  s_app.on_onoff_cmd(m->info.dst_ep, *(bool *)m->in.attribute.data.value);
+  }
+  if (!s_app_bound || !s_app.on_attr_write)
+    return;
+  s_app.on_attr_write(m->info.dst_ep, m->info.cluster_id, m->in.attribute.id,
+                      type, m->in.attribute.data.value);
 }
 
 static void zb_action_handler(ezb_zcl_core_action_callback_id_t id, void *msg)
@@ -324,7 +375,7 @@ static void zb_action_handler(ezb_zcl_core_action_callback_id_t id, void *msg)
   switch (id)
   {
   case EZB_ZCL_CORE_SET_ATTR_VALUE_CB_ID:
-    handle_onoff((const ezb_zcl_set_attr_value_message_t *)msg);
+    handle_attr((const ezb_zcl_set_attr_value_message_t *)msg);
     break;
   default:
     break;
@@ -647,14 +698,15 @@ void zb_transport_factory_reset(void)
   zb_alarm_in(reset_alarm_cb, 0, 100);
 }
 
-// Find the slot tracking ep, or -1. Slots are assigned in registration
-// order on first report; reports for unregistered endpoints are dropped
-// (the app only reports what its table built).
-static int report_slot(uint8_t ep)
+// Find the slot tracking (ep, cluster, attr), or -1. Slots are assigned
+// on first report; reports for unregistered endpoints are dropped (the
+// app only reports what its table built).
+static int report_slot(uint8_t ep, uint16_t cluster_id, uint16_t attr_id)
 {
   for (size_t i = 0; i < ZB_TRANSPORT_MAX_ENDPOINTS; i++)
   {
-    if (s_last[i].valid && s_last[i].ep == ep)
+    if (s_last[i].valid && s_last[i].ep == ep &&
+        s_last[i].cluster_id == cluster_id && s_last[i].attr_id == attr_id)
       return (int)i;
   }
   for (size_t i = 0; i < ZB_TRANSPORT_MAX_ENDPOINTS; i++)
@@ -663,31 +715,54 @@ static int report_slot(uint8_t ep)
     {
       s_last[i].valid = true;
       s_last[i].ep = ep;
-      s_last[i].val = 0xff;
+      s_last[i].cluster_id = cluster_id;
+      s_last[i].attr_id = attr_id;
+      s_last[i].size = 0;
       return (int)i;
     }
   }
   return -1;
 }
 
-void zb_transport_report_onoff(uint8_t ep, bool on)
+void zb_transport_report_attr(uint8_t ep, uint16_t cluster_id,
+                              uint16_t attr_id, zb_attr_type_t type,
+                              const void *value)
 {
-  if (!s_ready)
+  if (!s_ready || !value)
     return;
-  int slot = report_slot(ep);
+  size_t size = zb_attr_type_size(type);
+  if (size == 0 || size > ZB_TRANSPORT_VALUE_MAX)
+  {
+    // Strings/composites can't latch safely (no known width, pointer
+    // lifetime); unsupported until a product needs them.
+    ESP_LOGW(TAG, "Report ep %u cl 0x%04x attr 0x%04x: unsupported type dropped",
+             (unsigned)ep, (unsigned)cluster_id, (unsigned)attr_id);
+    return;
+  }
+  int slot = report_slot(ep, cluster_id, attr_id);
   if (slot < 0)
   {
     ESP_LOGW(TAG, "Report for unknown ep %u dropped", (unsigned)ep);
     return;
   }
-  uint8_t val = on ? 1 : 0;
-  if (s_last[slot].val == val)
+  if (s_last[slot].size == size &&
+      memcmp(s_last[slot].val, value, size) == 0)
     return;
-  s_last[slot].val = val;
+  s_last[slot].size = (uint8_t)size;
+  memcpy(s_last[slot].val, value, size);
+  memcpy(s_pending[slot].val, value, size);
   s_pending[slot].has = true;
   s_pending[slot].ep = ep;
-  s_pending[slot].val = val;
+  s_pending[slot].cluster_id = cluster_id;
+  s_pending[slot].attr_id = attr_id;
   zb_alarm_in(report_alarm_cb, 0, 100);
+}
+
+void zb_transport_report_onoff(uint8_t ep, bool on)
+{
+  uint8_t val = on ? 1 : 0;
+  zb_transport_report_attr(ep, EZB_ZCL_CLUSTER_ID_ON_OFF,
+                           EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, ZB_ATTR_U8, &val);
 }
 
 #else // !CONFIG_SOC_IEEE802154_SUPPORTED
@@ -701,6 +776,16 @@ void zb_transport_set_channel(uint8_t channel) { (void)channel; }
 void zb_transport_pair(void) {}
 void zb_transport_leave(void) {}
 void zb_transport_factory_reset(void) {}
+void zb_transport_report_attr(uint8_t ep, uint16_t cluster_id,
+                              uint16_t attr_id, zb_attr_type_t type,
+                              const void *value)
+{
+  (void)ep;
+  (void)cluster_id;
+  (void)attr_id;
+  (void)type;
+  (void)value;
+}
 void zb_transport_report_onoff(uint8_t ep, bool on)
 {
   (void)ep;

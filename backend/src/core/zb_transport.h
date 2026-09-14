@@ -20,6 +20,45 @@ extern "C"
 
 #define ZB_TRANSPORT_MAX_ENDPOINTS 8
 
+  // Attribute value types the transport routes and reports. Covers the
+  // numeric/bool ZCL scalars every measurement cluster needs (On/Off,
+  // temperature, humidity, analog input, ...). Strings and composite
+  // types arrive as ZB_ATTR_UNKNOWN and are dropped with a log today;
+  // add them when a product needs them.
+  typedef enum
+  {
+    ZB_ATTR_BOOL = 0,
+    ZB_ATTR_U8,
+    ZB_ATTR_S8,
+    ZB_ATTR_U16,
+    ZB_ATTR_S16,
+    ZB_ATTR_U32,
+    ZB_ATTR_S32,
+    ZB_ATTR_FLOAT,
+    ZB_ATTR_UNKNOWN,
+  } zb_attr_type_t;
+
+  // Byte size of a fixed-size type, 0 for ZB_ATTR_UNKNOWN.
+  static inline size_t zb_attr_type_size(zb_attr_type_t type)
+  {
+    switch (type)
+    {
+    case ZB_ATTR_BOOL:
+    case ZB_ATTR_U8:
+    case ZB_ATTR_S8:
+      return 1;
+    case ZB_ATTR_U16:
+    case ZB_ATTR_S16:
+      return 2;
+    case ZB_ATTR_U32:
+    case ZB_ATTR_S32:
+    case ZB_ATTR_FLOAT:
+      return 4;
+    default:
+      return 0;
+    }
+  }
+
   // One plain-switch endpoint. Core builds the stock On/Off template
   // (Basic + Identify + Groups + Scenes + On/Off servers, stamped with the
   // app's manufacturer/model) around each entry; device_id overrides the
@@ -39,8 +78,10 @@ extern "C"
     // Length-prefixed ZCL strings ("\\x0b" "Manufacturer"), app identity.
     const char *manufacturer_name;
     const char *model_identifier;
-    // Inbound On/Off command for one of our endpoints (on = active).
-    void (*on_onoff_cmd)(uint8_t ep, bool on);
+    // Inbound attribute write for one of our endpoints. value points at
+    // zb_attr_type_size(type) little-endian bytes (ZCL wire order).
+    void (*on_attr_write)(uint8_t ep, uint16_t cluster_id, uint16_t attr_id,
+                          zb_attr_type_t type, const void *value);
     // Network events (ZB context, keep them short: latch + broadcast).
     void (*on_joined)(uint16_t channel, uint16_t pan_id);
     void (*on_left)(void);
@@ -73,8 +114,15 @@ extern "C"
   // Erase ZB persistence (network state, bindings).
   void zb_transport_factory_reset(void);
 
-  // Report an On/Off attribute value (dedupe inside; applied in ZB
-  // context via alarm). Safe from any task.
+  // Report an attribute value (dedupe inside; applied in ZB context via
+  // alarm). value points at zb_attr_type_size(type) bytes. Safe from any
+  // task. The attribute must exist on the endpoint (declared at creation);
+  // the stack resolves storage from the cluster/attr IDs.
+  void zb_transport_report_attr(uint8_t ep, uint16_t cluster_id,
+                                uint16_t attr_id, zb_attr_type_t type,
+                                const void *value);
+
+  // Convenience wrapper for the common On/Off case.
   void zb_transport_report_onoff(uint8_t ep, bool on);
 
   // Request a fresh parent-link LQI reading. Async: the result arrives

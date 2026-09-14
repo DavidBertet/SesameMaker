@@ -172,12 +172,13 @@ static size_t zb_build_table(zb_endpoint_desc_t *out, size_t max)
   return 0;
 }
 
-static void zb_on_onoff_cmd(uint8_t ep, bool on)
+static void zb_on_attr_write(uint8_t ep, uint16_t cluster_id, uint16_t attr_id,
+                             zb_attr_type_t type, const void *value)
 {
-  if (s_device_bound && s_device.on_onoff_cmd)
-    s_device.on_onoff_cmd(ep, on);
+  if (s_device_bound && s_device.on_attr_write)
+    s_device.on_attr_write(ep, cluster_id, attr_id, type, value);
   else
-    ESP_LOGW(TAG, "OnOff cmd for ep %u with no device bound", (unsigned)ep);
+    ESP_LOGW(TAG, "Attr write ep %u with no device bound", (unsigned)ep);
 }
 
 static const char *zb_manufacturer_name(void)
@@ -200,7 +201,7 @@ static void zigbee_bind_transport(void)
       .build_table = zb_build_table,
       .manufacturer_name = zb_manufacturer_name(),
       .model_identifier = zb_model_identifier(),
-      .on_onoff_cmd = zb_on_onoff_cmd,
+      .on_attr_write = zb_on_attr_write,
       .on_joined = zigbee_on_joined,
       .on_left = zigbee_on_left,
       .on_commissioned = zigbee_on_commissioned,
