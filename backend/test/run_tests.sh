@@ -3,16 +3,16 @@
 set -e
 cd "$(dirname "$0")"
 cc -std=c11 -Wall -Wextra -o /tmp/test_secplus1 \
-    test_secplus1.c ../src/secplus1.c -lm
+    test_secplus1.c ../src/app/secplus1.c -lm
 /tmp/test_secplus1
 cc -std=c11 -Wall -Wextra -o /tmp/test_raw_json \
-    test_raw_json.c ../src/raw_json.c
+    test_raw_json.c ../src/app/raw_json.c
 /tmp/test_raw_json
 cc -std=c11 -Wall -Wextra -o /tmp/test_protocol \
     test_protocol.c
 /tmp/test_protocol
 cc -std=c11 -Wall -Wextra -o /tmp/test_drycontact \
-    test_drycontact.c ../src/drycontact.c
+    test_drycontact.c ../src/app/drycontact.c
 /tmp/test_drycontact
 cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee \
     test_zigbee.c

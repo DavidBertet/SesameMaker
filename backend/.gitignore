@@ -14,3 +14,4 @@ sdkconfig.*
 # Build-time secrets (real credentials, written by install tooling).
 # constants.h keeps empty placeholders so it stays committable.
 src/secrets.h
+src/*/secrets.h

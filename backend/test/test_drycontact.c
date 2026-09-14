@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "../src/drycontact.h"
+#include "../src/app/drycontact.h"
 
 static int tests_run = 0;
 

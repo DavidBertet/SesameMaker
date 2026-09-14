@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "../src/zigbee_rejoin.h"
+#include "../src/app/zigbee_rejoin.h"
 
 static int tests_run = 0;
 

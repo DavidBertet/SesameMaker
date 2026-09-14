@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "lint": "npm run lint:cli && npm run lint:frontend",
+    "lint": "npm run lint:cli && npm run lint:frontend && npm run lint:boundary",
     "lint:cli": "prettier --check \"cli/**/*.{js,mjs,cjs}\" \".prettierrc\"",
     "lint:frontend": "cd frontend && npm run lint",
+    "lint:boundary": "sh tools/check-boundary.sh",
     "format": "npm run format:cli && npm run format:frontend",
     "format:cli": "prettier --write \"cli/**/*.{js,mjs,cjs}\" \".prettierrc\"",
     "format:frontend": "cd frontend && npm run format",

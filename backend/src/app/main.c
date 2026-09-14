@@ -16,7 +16,7 @@
 #include "wifi.h"
 #include "webserver.h"
 #include "spiffs.h"
-#include "sntp.h"
+#include "ntp_sync.h"
 
 #include "websocket.h"
 #include "ws_wifi.h"

@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "../src/zigbee_lqi.h"
+#include "../src/app/zigbee_lqi.h"
 
 static int tests_run = 0;
 

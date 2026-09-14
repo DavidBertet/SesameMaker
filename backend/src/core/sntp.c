@@ -1,6 +1,6 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-#include "sntp.h"
+#include "ntp_sync.h"
 
 #include <string.h>
 #include <time.h>

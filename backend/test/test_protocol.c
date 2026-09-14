@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "../src/protocol.h"
+#include "../src/app/protocol.h"
 
 static int tests_run = 0;
 

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../src/secplus1.h"
+#include "../src/app/secplus1.h"
 
 static int tests_run = 0;
 

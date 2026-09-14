@@ -2,7 +2,7 @@
 //
 // Host-side unit tests for the raw bus-traffic JSON builder.
 
-#include "../src/raw_json.h"
+#include "../src/app/raw_json.h"
 
 #include <assert.h>
 #include <stdio.h>
