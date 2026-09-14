@@ -5,6 +5,7 @@
 #include "homekit.h"
 
 #include "wifi.h"
+#include "ws_homekit.h"
 
 #include "hap.h"
 
@@ -118,6 +119,16 @@ static void hap_event_logger(hap_event_t event, void *data)
     ESP_LOGI(TAG, "Pairing started");
   else if (event == HAP_EVENT_PAIRING_ABORTED)
     ESP_LOGW(TAG, "Pairing aborted (timeout or wrong code)");
+  else if (event == HAP_EVENT_CTRL_PAIRED)
+  {
+    ESP_LOGI(TAG, "Controller paired");
+    broadcast_homekit_config();
+  }
+  else if (event == HAP_EVENT_CTRL_UNPAIRED)
+  {
+    ESP_LOGI(TAG, "Controller unpaired");
+    broadcast_homekit_config();
+  }
 }
 
 static void homekit_task(void *arg)
@@ -166,6 +177,7 @@ static void homekit_task(void *arg)
   }
   s_ready = true;
   ESP_LOGI(TAG, "HAP started");
+  broadcast_homekit_config();
   vTaskDelete(NULL);
 }
 

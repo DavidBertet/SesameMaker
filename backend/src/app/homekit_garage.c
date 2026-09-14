@@ -160,7 +160,7 @@ static void build_accessory(void)
     ESP_LOGE(TAG, "hap_acc_create failed");
     return;
   }
-  uint8_t product_data[] = {'S', 'E', 'S', 'A', 'M', 'E'};
+  uint8_t product_data[] = {'S', 'E', 'S', 'A', 'M', 'E', '0', '1'};
   hap_acc_add_product_data(acc, product_data, sizeof(product_data));
   hap_acc_add_wifi_transport_service(acc, 0);
 
