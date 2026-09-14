@@ -1,8 +1,17 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
+//
+// Zigbee bridge service (core, 802.15.4 targets only): config state
+// machine (enabled flag, scan channel, pairing window, NVS), network
+// event latching, BOOT-button pairing/reset, and transport binding.
+// Knows nothing about the product: endpoint table, command mapping,
+// state reporting and device identity come from a zb_device_t
+// registrant (e.g. zigbee_garage). A second product reuses this file
+// untouched and only provides its own registrant.
 
 #pragma once
 
 #include "esp_err.h"
+#include "zb_transport.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -25,7 +34,7 @@ typedef struct
   // Seconds remaining in the pairing window, 0 = closed.
   uint32_t pairing_remaining_s;
   // Parent-link LQI (0-255) from the last neighbor-table poll; valid only
-  // when lqi_valid (cleared on leave/reset, polled ~1/min while joined).
+  // when lqi_valid (cleared on leave/reset, polled on demand while joined).
   uint8_t lqi;
   bool lqi_valid;
   // Parent we are joined through: short address + tree depth (0 = the
@@ -34,12 +43,33 @@ typedef struct
   uint8_t parent_depth;
 } zigbee_state_t;
 
+// Product-specific Zigbee content. Mirrors the transport contract but at
+// device level: the service fills the transport table/identity from here
+// and routes commands/reports through here.
+typedef struct
+{
+  // Endpoint table builder (see zb_app_t.build_table).
+  size_t (*build_table)(zb_endpoint_desc_t *out, size_t max);
+  // Length-prefixed ZCL strings ("\\x0b" "Manufacturer").
+  const char *manufacturer_name;
+  const char *model_identifier;
+  // Inbound On/Off command for one of our endpoints (on = active).
+  void (*on_onoff_cmd)(uint8_t ep, bool on);
+  // Push the current device state into zb_transport_report_onoff calls.
+  // Invoked by zigbee_report_state(); transport dedupes, so repeats are free.
+  void (*report_state)(void);
+} zb_device_t;
+
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
   esp_err_t zigbee_init(void);
+
+  // Product content wiring. Call once before zigbee_init(); pointers must
+  // stay valid (app-static).
+  void zigbee_register_device(const zb_device_t *dev);
 
   // Snapshot for WS responses. On non-Zigbee builds reports enabled=false,
   // joined=false so the UI hides the section.
@@ -51,8 +81,7 @@ extern "C"
   // running, immediately via the rejoin/steering path.
   esp_err_t zigbee_set_channel(uint8_t channel);
   // Combined setter for set_zigbee_config: validates everything first,
-  // then applies with a single NVS persist + single broadcast (only when
-  // something actually changed). Fields without has_ set are untouched.
+  // then applies with a single NVS persist + single broadcast.
   esp_err_t zigbee_apply_config(bool has_enabled, bool enabled,
                                 bool has_channel, uint8_t channel);
   // Open the joining window for up to duration_s (clamped internally).
@@ -62,17 +91,13 @@ extern "C"
   // BDB factory reset + NVS wipe + rejoin-ready state.
   esp_err_t zigbee_factory_reset(void);
 
-  // Report the latest garage state to bound Zigbee clusters (dedupe inside).
-  // Called next to mqtt_notify_changed(); no-op when disabled.
+  // Report the latest device state to bound Zigbee clusters (delegates to
+  // the registered device). No-op when disabled or unregistered.
   void zigbee_report_state(void);
 
   // BOOT-button monitor (BOOT strapping pin, runtime sampling only).
   // No-op on targets without a button (ZIGBEE_BOOT_GPIO < 0).
   void zigbee_button_init(void);
-
-  // NOTE: transport callbacks (joined/left/parent/...) are static in
-  // zigbee.c and reach the core only through zb_transport_register().
-  // Nothing outside this file references them.
 
 #ifdef __cplusplus
 }

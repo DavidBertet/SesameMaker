@@ -7,9 +7,6 @@
 
 #include "channel_config.h"
 #include "constants.h"
-#include "garage_controller.h"
-#include "protocol_registry.h"
-#include "secplus1.h"
 #include "storage.h"
 #include "ws_zigbee.h"
 #include "zb_transport.h"
@@ -21,8 +18,6 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-// Device-ID constants for our endpoint table (transport builds the rest).
-#include "ezbee/zha.h"
 #endif
 
 #include <string.h>
@@ -150,68 +145,61 @@ static void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi)
   broadcast_zigbee_config();
 }
 
-// ---- Zigbee application: this product's endpoints + mapping ----
+// ---- Product content (registered zb_device_t) ----
 //
-// One endpoint per function so hubs map each to the right entity, all as
-// plain switches: door = On/Off Output (on = open), light = On/Off Light,
-// remote lockout = On/Off Output (on = remotes disabled). Light/lock only
-// exist when the active protocol drives them (dry-contact has neither).
-// An air-quality sensor would provide its own table here and leave the
-// transport untouched.
-#define ZB_EP_DOOR 10
-#define ZB_EP_LIGHT 11
-#define ZB_EP_LOCK 12
+// Endpoint table, command mapping, state reporting and device identity
+// come from the app (e.g. zigbee_garage). This service only owns the
+// generic end-device state machine; a second product registers its own
+// content and reuses this file untouched. Register before zigbee_init().
 
-// Length-prefixed ZCL strings. The length byte is a separate literal:
-// "\x0bD..." would parse as \xBD (D is a hex digit), corrupting the attr.
-#define ZB_MANUFACTURER_NAME "\x0b" \
-                             "DavidBertet"
-#define ZB_MODEL_IDENTIFIER "\x0b" \
-                            "SesameMaker"
+static zb_device_t s_device;
+static bool s_device_bound = false;
 
+void zigbee_register_device(const zb_device_t *dev)
+{
+  if (!dev)
+    return;
+  s_device = *dev;
+  s_device_bound = true;
+}
+
+// zb_app_t forwarders: transport-facing side stays here, product-facing
+// side delegates to the registered device.
 static size_t zb_build_table(zb_endpoint_desc_t *out, size_t max)
 {
-  protocol_caps_t caps = protocol_registry_caps();
-  size_t n = 0;
-  if (n < max)
-    out[n++] = (zb_endpoint_desc_t){ZB_EP_DOOR, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID};
-  if (caps.light && n < max)
-    out[n++] = (zb_endpoint_desc_t){ZB_EP_LIGHT, EZB_ZHA_ON_OFF_LIGHT_DEVICE_ID};
-  if (caps.lock && n < max)
-    out[n++] = (zb_endpoint_desc_t){ZB_EP_LOCK, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID};
-  ESP_LOGI(TAG, "Endpoints: door=10 light=%d lock=%d", (int)caps.light, (int)caps.lock);
-  return n;
+  if (s_device_bound && s_device.build_table)
+    return s_device.build_table(out, max);
+  return 0;
 }
 
 static void zb_on_onoff_cmd(uint8_t ep, bool on)
 {
-  if (ep == ZB_EP_DOOR)
-  {
-    ESP_LOGI(TAG, "Door %s", on ? "open" : "close");
-    garage_controller_door_action(on ? "open" : "close");
-  }
-  else if (ep == ZB_EP_LIGHT)
-  {
-    ESP_LOGI(TAG, "Light %s", on ? "on" : "off");
-    garage_controller_light_action(on ? "on" : "off");
-  }
-  else if (ep == ZB_EP_LOCK)
-  {
-    ESP_LOGI(TAG, "Remotes %s", on ? "locked out" : "enabled");
-    garage_controller_lock_action(on ? "lock" : "unlock");
-  }
+  if (s_device_bound && s_device.on_onoff_cmd)
+    s_device.on_onoff_cmd(ep, on);
   else
-  {
-    ESP_LOGW(TAG, "OnOff cmd for unknown ep %u ignored", (unsigned)ep);
-  }
+    ESP_LOGW(TAG, "OnOff cmd for ep %u with no device bound", (unsigned)ep);
+}
+
+static const char *zb_manufacturer_name(void)
+{
+  if (s_device_bound && s_device.manufacturer_name)
+    return s_device.manufacturer_name;
+  return "";
+}
+
+static const char *zb_model_identifier(void)
+{
+  if (s_device_bound && s_device.model_identifier)
+    return s_device.model_identifier;
+  return "";
 }
 
 static void zigbee_bind_transport(void)
 {
-  static const zb_app_t app = {
+  zb_app_t app = {
       .build_table = zb_build_table,
-      .manufacturer_name = ZB_MANUFACTURER_NAME,
-      .model_identifier = ZB_MODEL_IDENTIFIER,
+      .manufacturer_name = zb_manufacturer_name(),
+      .model_identifier = zb_model_identifier(),
       .on_onoff_cmd = zb_on_onoff_cmd,
       .on_joined = zigbee_on_joined,
       .on_left = zigbee_on_left,
@@ -345,24 +333,8 @@ void zigbee_report_state(void)
 {
   if (!s_enabled || !s_joined)
     return;
-  garage_state_t st;
-  if (garage_controller_get_state(&st) != ESP_OK)
-    return;
-  // Door as switch state: open = on (1), closed = off (0).
-  // Moving/unknown: not reported, the end state reports on arrival
-  // (transport dedupes, so repeats are free).
-  if (st.door_state == SECPLUS1_DOOR_OPEN)
-    zb_transport_report_onoff(ZB_EP_DOOR, true);
-  else if (st.door_state == SECPLUS1_DOOR_CLOSED)
-    zb_transport_report_onoff(ZB_EP_DOOR, false);
-  if (st.light_state == GARAGE_LIGHT_ON)
-    zb_transport_report_onoff(ZB_EP_LIGHT, true);
-  else if (st.light_state == GARAGE_LIGHT_OFF)
-    zb_transport_report_onoff(ZB_EP_LIGHT, false);
-  if (st.lock_state == GARAGE_LOCK_LOCKED)
-    zb_transport_report_onoff(ZB_EP_LOCK, true);
-  else if (st.lock_state == GARAGE_LOCK_UNLOCKED)
-    zb_transport_report_onoff(ZB_EP_LOCK, false);
+  if (s_device_bound && s_device.report_state)
+    s_device.report_state();
 }
 
 // ---- BOOT button: runtime sampling only, active-low ----
@@ -447,6 +419,8 @@ void zigbee_button_init(void)
 #else // !CONFIG_SOC_IEEE802154_SUPPORTED
 
 esp_err_t zigbee_init(void) { return ESP_OK; }
+
+void zigbee_register_device(const zb_device_t *dev) { (void)dev; }
 
 esp_err_t zigbee_get_state(zigbee_state_t *out)
 {

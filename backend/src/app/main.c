@@ -31,6 +31,7 @@
 #include "mqtt.h"
 #include "mqtt_garage.h"
 #include "zigbee.h"
+#include "zigbee_garage.h"
 #include "ws_zigbee.h"
 
 static const char *TAG = "main";
@@ -155,7 +156,9 @@ void app_main()
   mqtt_garage_register();
   ESP_ERROR_CHECK(mqtt_init());
 
-  // Zigbee bridge (C6 only; no-op stub on classic builds)
+  // Zigbee bridge (C6 only; no-op stub on classic builds).
+  // Garage content registers first so stack startup picks it up.
+  zigbee_garage_register();
   ESP_ERROR_CHECK(zigbee_init());
   zigbee_button_init();
 
