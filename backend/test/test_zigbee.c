@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "../src/app/zigbee_press.h"
+#include "../src/core/zigbee_press.h"
 
 static int tests_run = 0;
 

@@ -4,7 +4,7 @@
 
 #include "websocket.h"
 #include "zigbee.h"
-#include "zigbee_stack.h"
+#include "zb_transport.h"
 #include "channel_config.h"
 
 #include "esp_log.h"
@@ -50,7 +50,7 @@ static void send_state(int sockfd)
 {
     // Kick a fresh parent-link reading on every read: the reply carries
     // last-known values immediately, the poll result follows by broadcast.
-    zigbee_stack_poll_lqi();
+    zb_transport_poll_lqi();
     char json[320];
     if (!format_state(json, sizeof(json)))
     {
@@ -127,7 +127,7 @@ void ws_handle_set_zigbee_config(const cJSON *root, int sockfd)
     // No unicast echo: apply already broadcast on change (reaches the
     // requester too), and no-change means the requester holds current
     // values. Keep the LQI refresh for the open card.
-    zigbee_stack_poll_lqi();
+    zb_transport_poll_lqi();
 }
 
 void ws_handle_zigbee_pair(const cJSON *root, int sockfd)

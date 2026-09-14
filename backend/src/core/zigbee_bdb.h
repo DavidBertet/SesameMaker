@@ -7,7 +7,7 @@
 // instead of printing a bogus name.
 //
 // Numeric on purpose so host tests need no ESP-IDF headers (same pattern
-// as zigbee_lqi.h); zigbee_stack.c pins each value to the matching
+// as zigbee_lqi.h); zb_transport.c pins each value to the matching
 // EZB_BDB_STATUS_* constant with _Static_assert.
 
 #pragma once

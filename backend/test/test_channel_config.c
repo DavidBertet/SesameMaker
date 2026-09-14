@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "../src/app/channel_config.h"
+#include "../src/core/channel_config.h"
 
 static int tests_run = 0;
 

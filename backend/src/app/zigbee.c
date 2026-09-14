@@ -8,9 +8,11 @@
 #include "channel_config.h"
 #include "constants.h"
 #include "garage_controller.h"
+#include "protocol_registry.h"
+#include "secplus1.h"
 #include "storage.h"
 #include "ws_zigbee.h"
-#include "zigbee_stack.h"
+#include "zb_transport.h"
 
 #include "esp_log.h"
 
@@ -19,6 +21,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+// Device-ID constants for our endpoint table (transport builds the rest).
+#include "ezbee/zha.h"
 #endif
 
 #include <string.h>
@@ -49,6 +53,10 @@ static uint16_t s_parent_addr = 0;
 static uint8_t s_parent_depth = 0;
 static int64_t s_pair_until_us = 0;
 
+// Bound to the transport in zigbee_init (defined below, after the
+// callbacks it references).
+static void zigbee_bind_transport(void);
+
 static void persist(void)
 {
   zig_persist_t p;
@@ -78,25 +86,26 @@ static void load(void)
 esp_err_t zigbee_init(void)
 {
   load();
+  zigbee_bind_transport();
   if (!s_enabled)
   {
     ESP_LOGI(TAG, "Zigbee disabled");
     return ESP_OK;
   }
   ESP_LOGI(TAG, "Zigbee enabled, starting stack");
-  zigbee_stack_set_channel(s_channel_cfg);
-  zigbee_stack_start();
+  zb_transport_set_channel(s_channel_cfg);
+  zb_transport_start();
   return ESP_OK;
 }
 
 // True while a pairing window is open (steering target).
-bool zigbee_pairing_open(void)
+static bool zigbee_pairing_open(void)
 {
   return s_pair_until_us > esp_timer_get_time();
 }
 
-// Stack upcalls (run in ZB task context): network joined/left.
-void zigbee_on_joined(uint16_t channel, uint16_t pan_id)
+// Transport callbacks (run in ZB task context): network joined/left.
+static void zigbee_on_joined(uint16_t channel, uint16_t pan_id)
 {
   s_joined = true;
   s_commissioned = true;
@@ -106,7 +115,7 @@ void zigbee_on_joined(uint16_t channel, uint16_t pan_id)
   broadcast_zigbee_config();
 }
 
-void zigbee_on_commissioned(bool commissioned)
+static void zigbee_on_commissioned(bool commissioned)
 {
   if (s_commissioned == commissioned)
     return;
@@ -114,7 +123,7 @@ void zigbee_on_commissioned(bool commissioned)
   broadcast_zigbee_config();
 }
 
-void zigbee_on_left(void)
+static void zigbee_on_left(void)
 {
   s_joined = false;
   s_commissioned = false;
@@ -130,7 +139,7 @@ void zigbee_on_left(void)
 // Parent link from the stack's neighbor-table poll (addr, depth, LQI).
 // Broadcasts only on change so the ~1/min poll doesn't spam WS clients
 // with identical state.
-void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi)
+static void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi)
 {
   if (s_lqi_valid && s_lqi == lqi && s_parent_addr == addr && s_parent_depth == depth)
     return;
@@ -139,6 +148,78 @@ void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi)
   s_lqi = lqi;
   s_lqi_valid = true;
   broadcast_zigbee_config();
+}
+
+// ---- Zigbee application: this product's endpoints + mapping ----
+//
+// One endpoint per function so hubs map each to the right entity, all as
+// plain switches: door = On/Off Output (on = open), light = On/Off Light,
+// remote lockout = On/Off Output (on = remotes disabled). Light/lock only
+// exist when the active protocol drives them (dry-contact has neither).
+// An air-quality sensor would provide its own table here and leave the
+// transport untouched.
+#define ZB_EP_DOOR 10
+#define ZB_EP_LIGHT 11
+#define ZB_EP_LOCK 12
+
+// Length-prefixed ZCL strings. The length byte is a separate literal:
+// "\x0bD..." would parse as \xBD (D is a hex digit), corrupting the attr.
+#define ZB_MANUFACTURER_NAME "\x0b" \
+                             "DavidBertet"
+#define ZB_MODEL_IDENTIFIER "\x0b" \
+                            "SesameMaker"
+
+static size_t zb_build_table(zb_endpoint_desc_t *out, size_t max)
+{
+  protocol_caps_t caps = protocol_registry_caps();
+  size_t n = 0;
+  if (n < max)
+    out[n++] = (zb_endpoint_desc_t){ZB_EP_DOOR, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID};
+  if (caps.light && n < max)
+    out[n++] = (zb_endpoint_desc_t){ZB_EP_LIGHT, EZB_ZHA_ON_OFF_LIGHT_DEVICE_ID};
+  if (caps.lock && n < max)
+    out[n++] = (zb_endpoint_desc_t){ZB_EP_LOCK, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID};
+  ESP_LOGI(TAG, "Endpoints: door=10 light=%d lock=%d", (int)caps.light, (int)caps.lock);
+  return n;
+}
+
+static void zb_on_onoff_cmd(uint8_t ep, bool on)
+{
+  if (ep == ZB_EP_DOOR)
+  {
+    ESP_LOGI(TAG, "Door %s", on ? "open" : "close");
+    garage_controller_door_action(on ? "open" : "close");
+  }
+  else if (ep == ZB_EP_LIGHT)
+  {
+    ESP_LOGI(TAG, "Light %s", on ? "on" : "off");
+    garage_controller_light_action(on ? "on" : "off");
+  }
+  else if (ep == ZB_EP_LOCK)
+  {
+    ESP_LOGI(TAG, "Remotes %s", on ? "locked out" : "enabled");
+    garage_controller_lock_action(on ? "lock" : "unlock");
+  }
+  else
+  {
+    ESP_LOGW(TAG, "OnOff cmd for unknown ep %u ignored", (unsigned)ep);
+  }
+}
+
+static void zigbee_bind_transport(void)
+{
+  static const zb_app_t app = {
+      .build_table = zb_build_table,
+      .manufacturer_name = ZB_MANUFACTURER_NAME,
+      .model_identifier = ZB_MODEL_IDENTIFIER,
+      .on_onoff_cmd = zb_on_onoff_cmd,
+      .on_joined = zigbee_on_joined,
+      .on_left = zigbee_on_left,
+      .on_commissioned = zigbee_on_commissioned,
+      .on_parent = zigbee_on_parent,
+      .pairing_open = zigbee_pairing_open,
+  };
+  zb_transport_register(&app);
 }
 
 esp_err_t zigbee_get_state(zigbee_state_t *out)
@@ -180,17 +261,17 @@ esp_err_t zigbee_apply_config(bool has_enabled, bool enabled,
     {
       s_pair_until_us = 0;
       if (s_joined)
-        zigbee_stack_leave();
+        zb_transport_leave();
     }
     else
     {
-      zigbee_stack_start();
+      zb_transport_start();
     }
   }
   if (has_channel)
   {
     s_channel_cfg = channel;
-    zigbee_stack_set_channel(channel);
+    zb_transport_set_channel(channel);
   }
   if (!enabled_changed && !channel_changed)
     return ESP_OK;
@@ -228,7 +309,7 @@ esp_err_t zigbee_start_pairing(uint32_t duration_s)
   if (duration_s == 0 || duration_s > ZIG_PAIR_MAX_S)
     duration_s = 60;
   s_pair_until_us = esp_timer_get_time() + (int64_t)duration_s * 1000000;
-  zigbee_stack_pair();
+  zb_transport_pair();
   ESP_LOGI(TAG, "Pairing window open for %lus", (unsigned long)duration_s);
   broadcast_zigbee_config();
   return ESP_OK;
@@ -240,7 +321,7 @@ esp_err_t zigbee_leave(void)
   s_channel = 0;
   s_pan_id = 0;
   s_pair_until_us = 0;
-  zigbee_stack_leave();
+  zb_transport_leave();
   ESP_LOGI(TAG, "Left Zigbee network");
   zigbee_on_left(); // optimistic; signal handler confirms on rejoin paths
   return ESP_OK;
@@ -254,7 +335,7 @@ esp_err_t zigbee_factory_reset(void)
   s_pair_until_us = 0;
   delete_blob(ZIG_CFG_KEY);
   s_enabled = false;
-  zigbee_stack_factory_reset();
+  zb_transport_factory_reset();
   ESP_LOGI(TAG, "Zigbee factory reset");
   zigbee_on_left();
   return ESP_OK;
@@ -267,7 +348,21 @@ void zigbee_report_state(void)
   garage_state_t st;
   if (garage_controller_get_state(&st) != ESP_OK)
     return;
-  zigbee_stack_report(&st);
+  // Door as switch state: open = on (1), closed = off (0).
+  // Moving/unknown: not reported, the end state reports on arrival
+  // (transport dedupes, so repeats are free).
+  if (st.door_state == SECPLUS1_DOOR_OPEN)
+    zb_transport_report_onoff(ZB_EP_DOOR, true);
+  else if (st.door_state == SECPLUS1_DOOR_CLOSED)
+    zb_transport_report_onoff(ZB_EP_DOOR, false);
+  if (st.light_state == GARAGE_LIGHT_ON)
+    zb_transport_report_onoff(ZB_EP_LIGHT, true);
+  else if (st.light_state == GARAGE_LIGHT_OFF)
+    zb_transport_report_onoff(ZB_EP_LIGHT, false);
+  if (st.lock_state == GARAGE_LOCK_LOCKED)
+    zb_transport_report_onoff(ZB_EP_LOCK, true);
+  else if (st.lock_state == GARAGE_LOCK_UNLOCKED)
+    zb_transport_report_onoff(ZB_EP_LOCK, false);
 }
 
 // ---- BOOT button: runtime sampling only, active-low ----

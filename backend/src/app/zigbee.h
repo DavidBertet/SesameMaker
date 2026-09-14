@@ -70,15 +70,9 @@ extern "C"
   // No-op on targets without a button (ZIGBEE_BOOT_GPIO < 0).
   void zigbee_button_init(void);
 
-  // Internal stack upcalls / queries (used by zigbee_stack.c).
-  bool zigbee_pairing_open(void);
-  void zigbee_on_joined(uint16_t channel, uint16_t pan_id);
-  void zigbee_on_left(void);
-  // Stack upcall: network credentials present (production config restored,
-  // rejoin in progress) or absent (factory-new / wiped). Cleared by
-  // zigbee_on_left; set alongside zigbee_on_joined.
-  void zigbee_on_commissioned(bool commissioned);
-  void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi);
+  // NOTE: transport callbacks (joined/left/parent/...) are static in
+  // zigbee.c and reach the core only through zb_transport_register().
+  // Nothing outside this file references them.
 
 #ifdef __cplusplus
 }

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../src/app/zigbee_bdb.h"
+#include "../src/core/zigbee_bdb.h"
 
 static int tests_run = 0;
 

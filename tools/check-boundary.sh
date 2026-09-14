@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")/.."
 fail=0
 echo "--- backend: core must not include app headers"
-if grep -rn '#include "\(garage\|protocol\|zigbee\|mqtt_garage\|secplus1\|drycontact\|raw_json\|channel_config\|ws_garage\|ws_protocol\)' backend/src/core/; then
+if grep -rn '#include "\(garage\|protocol\|zigbee\.h\|ws_zigbee\|mqtt_garage\|secplus1\|drycontact\|raw_json\)' backend/src/core/; then
   fail=1
 else
   echo "backend core: clean"

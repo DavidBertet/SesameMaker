@@ -1,10 +1,8 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-#include "zigbee_stack.h"
+#include "zb_transport.h"
 
 #include "channel_config.h"
-#include "garage_controller.h"
-#include "protocol_registry.h"
 #include "wifi.h"
 #include "zigbee_bdb.h"
 #include "zigbee_lqi.h"
@@ -53,16 +51,6 @@ _Static_assert(EZB_BDB_STATUS_DEV_ANNCE_SEND_FAILURE == 14, "bdb status mismatch
 
 static const char *TAG = "ZB_STACK";
 
-// One endpoint per function so hubs map each to the right entity, all as
-// plain switches: door = On/Off Output, light = On/Off Light, remote
-// lockout = On/Off Output. No lock clusters anywhere (no PIN pad / keypad
-// baggage) and no Window Covering (no position/tilt sliders for a binary
-// door). Built on the stock On/Off Light template (Basic + Identify +
-// Groups + Scenes + On/Off servers) with the device ID overridden where
-// needed — same over-the-air behavior as before.
-#define ZB_EP_DOOR 10
-#define ZB_EP_LIGHT 11
-#define ZB_EP_LOCK 12
 #define ZB_TASK_STACK 8192
 #define ZB_TASK_PRIO 5
 // 802.15.4 TX power in dBm (C6 range -15..+20). Max: the garage is often far
@@ -75,12 +63,9 @@ static const char *TAG = "ZB_STACK";
 #define ZB_WIFI_WAIT_MAX_MS 15000
 #define ZB_WIFI_WAIT_POLL_MS 500
 
-// Length-prefixed ZCL strings. The length byte is a separate literal:
-// "\x0bD..." would parse as \xBD (D is a hex digit), corrupting the attr.
-#define ZB_MANUFACTURER_NAME "\x0b" \
-                             "DavidBertet"
-#define ZB_MODEL_IDENTIFIER "\x0b" \
-                            "SesameMaker"
+// Length-prefixed ZCL strings live in the app (device identity); the
+// length byte stays a separate literal: "\x0bD..." would parse as \xBD
+// (D is a hex digit), corrupting the attr.
 
 static bool s_started = false;
 // Written by the ZB task, read by WS/button tasks: mark volatile so the
@@ -92,16 +77,32 @@ static volatile bool s_ready = false; // esp_zigbee_start() done, timer callback
 // cross-task synchronization is needed after s_started.
 static uint8_t s_scan_channel = 0;
 
-// Last reported values (dedupe; 0xff = never reported).
-static uint8_t s_last_door = 0xff; // OnOff: 1 = open, 0 = closed
-static uint8_t s_last_onoff = 0xff;
-static uint8_t s_last_lock = 0xff;
+// Bound app contract (copied at register; string/table data is app-static).
+static zb_app_t s_app;
+static bool s_app_bound = false;
 
-extern void zigbee_on_joined(uint16_t channel, uint16_t pan_id);
-extern void zigbee_on_left(void);
-extern void zigbee_on_commissioned(bool commissioned);
-extern void zigbee_on_parent(uint16_t addr, uint8_t depth, uint8_t lqi);
-extern bool zigbee_pairing_open(void);
+// Pairing gate: unbound or missing callback means closed (safe default).
+static bool app_pairing_open(void)
+{
+  return s_app_bound && s_app.pairing_open && s_app.pairing_open();
+}
+
+// Last latched value per endpoint slot (dedupe; valid=false = never).
+// Slots follow registration order; reports for unknown endpoints are dropped.
+static struct
+{
+  bool valid;
+  uint8_t ep;
+  uint8_t val;
+} s_last[ZB_TRANSPORT_MAX_ENDPOINTS];
+
+// Pending attribute snapshot, applied in ZB context by report_alarm_cb.
+static struct
+{
+  bool has;
+  uint8_t ep;
+  uint8_t val;
+} s_pending[ZB_TRANSPORT_MAX_ENDPOINTS];
 
 // ---- deferred ZB work (esp_timer one-shot + ZB lock) ----
 //
@@ -195,7 +196,8 @@ static void lqi_rsp_cb(const ezb_zdo_nwk_mgmt_lqi_req_result_t *result, void *ct
   }
   const ezb_zdp_nwk_mgmt_lqi_neighbor_table_entry_t *n = &result->rsp->neighbor_table_list[idx];
   ESP_LOGI(TAG, "LQI parent 0x%04x depth %u lqa=%d", n->nwk_addr, n->device_depth, n->lqa);
-  zigbee_on_parent(n->nwk_addr, n->device_depth, n->lqa);
+  if (s_app_bound && s_app.on_parent)
+    s_app.on_parent(n->nwk_addr, n->device_depth, n->lqa);
 }
 
 static void lqi_alarm_cb(uint32_t arg)
@@ -217,7 +219,7 @@ static void lqi_alarm_cb(uint32_t arg)
     s_lqi_polling = false;
   }
   // One-shot: the next poll comes from kick_lqi_poll or
-  // zigbee_stack_poll_lqi, never from here.
+  // zb_transport_poll_lqi, never from here.
 }
 
 static void kick_lqi_poll(void)
@@ -236,7 +238,7 @@ static void kick_lqi_poll(void)
 // Request a fresh parent-link reading (e.g. UI opened the card). The
 // reply is async and lands via broadcast_zigbee_config; safe from any
 // task, no-op while unjoined or when one is already in flight.
-void zigbee_stack_poll_lqi(void)
+void zb_transport_poll_lqi(void)
 {
   if (!s_ready)
     return;
@@ -247,7 +249,7 @@ void zigbee_stack_poll_lqi(void)
 
 static void steer_alarm_cb(uint32_t mode)
 {
-  if (!zigbee_pairing_open())
+  if (!app_pairing_open())
     return;
   ESP_LOGI(TAG, "Starting steering");
   ezb_bdb_start_top_level_commissioning((ezb_bdb_comm_mode_mask_t)mode);
@@ -287,43 +289,20 @@ static void reset_alarm_cb(uint32_t arg)
   esp_zigbee_factory_reset();
 }
 
-// Pending attribute snapshot, applied in ZB context by report_alarm_cb.
-static struct
-{
-  bool has_door;
-  uint8_t door;
-  bool has_onoff;
-  uint8_t onoff;
-  bool has_lock;
-  uint8_t lock;
-} s_pending;
+// ---- pending attribute snapshot, applied in ZB context by report_alarm_cb ----
 
 static void report_alarm_cb(uint32_t arg)
 {
   (void)arg;
-  if (s_pending.has_door)
+  for (size_t i = 0; i < ZB_TRANSPORT_MAX_ENDPOINTS; i++)
   {
-    ezb_zcl_set_attr_value(ZB_EP_DOOR, EZB_ZCL_CLUSTER_ID_ON_OFF,
+    if (!s_pending[i].has)
+      continue;
+    ezb_zcl_set_attr_value(s_pending[i].ep, EZB_ZCL_CLUSTER_ID_ON_OFF,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID,
-                           EZB_ZCL_STD_MANUF_CODE, &s_pending.door, false);
-    s_pending.has_door = false;
-  }
-  if (s_pending.has_onoff)
-  {
-    ezb_zcl_set_attr_value(ZB_EP_LIGHT, EZB_ZCL_CLUSTER_ID_ON_OFF,
-                           EZB_ZCL_CLUSTER_SERVER,
-                           EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID,
-                           EZB_ZCL_STD_MANUF_CODE, &s_pending.onoff, false);
-    s_pending.has_onoff = false;
-  }
-  if (s_pending.has_lock)
-  {
-    ezb_zcl_set_attr_value(ZB_EP_LOCK, EZB_ZCL_CLUSTER_ID_ON_OFF,
-                           EZB_ZCL_CLUSTER_SERVER,
-                           EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID,
-                           EZB_ZCL_STD_MANUF_CODE, &s_pending.lock, false);
-    s_pending.has_lock = false;
+                           EZB_ZCL_STD_MANUF_CODE, &s_pending[i].val, false);
+    s_pending[i].has = false;
   }
 }
 
@@ -335,23 +314,9 @@ static void handle_onoff(const ezb_zcl_set_attr_value_message_t *m)
       m->in.attribute.id != EZB_ZCL_ATTR_ON_OFF_ON_OFF_ID ||
       m->in.attribute.data.type != EZB_ZCL_ATTR_TYPE_BOOL || !m->in.attribute.data.value)
     return;
-  bool on = *(bool *)m->in.attribute.data.value;
-  // Door: on = open. Lamp: on = on. Remote lockout: on = remotes disabled.
-  if (m->info.dst_ep == ZB_EP_DOOR)
-  {
-    ESP_LOGI(TAG, "Door %s", on ? "open" : "close");
-    garage_controller_door_action(on ? "open" : "close");
-  }
-  else if (m->info.dst_ep == ZB_EP_LIGHT)
-  {
-    ESP_LOGI(TAG, "Light %s", on ? "on" : "off");
-    garage_controller_light_action(on ? "on" : "off");
-  }
-  else if (m->info.dst_ep == ZB_EP_LOCK)
-  {
-    ESP_LOGI(TAG, "Remotes %s", on ? "locked out" : "enabled");
-    garage_controller_lock_action(on ? "lock" : "unlock");
-  }
+  if (!s_app_bound || !s_app.on_onoff_cmd)
+    return;
+  s_app.on_onoff_cmd(m->info.dst_ep, *(bool *)m->in.attribute.data.value);
 }
 
 static void zb_action_handler(ezb_zcl_core_action_callback_id_t id, void *msg)
@@ -405,7 +370,8 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
       // complete: retry, the parent/coordinator may just not be ready yet.
       if (!ezb_bdb_is_factory_new())
       {
-        zigbee_on_commissioned(true);
+        if (s_app_bound && s_app.on_commissioned)
+          s_app.on_commissioned(true);
         schedule_rejoin_retry();
       }
       break;
@@ -413,8 +379,9 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
     if (ezb_bdb_is_factory_new())
     {
       ESP_LOGI(TAG, "Factory new (sig=%s)", ezb_app_signal_to_string(sig));
-      zigbee_on_commissioned(false);
-      if (zigbee_pairing_open())
+      if (s_app_bound && s_app.on_commissioned)
+        s_app.on_commissioned(false);
+      if (app_pairing_open())
         ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
       else
         ESP_LOGI(TAG, "Factory new, pairing closed: idle until pairing window opens");
@@ -423,7 +390,8 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
     {
       s_reboot_attempts = 0;
       ESP_LOGI(TAG, "Rejoined (ch %d, pan 0x%04x)", ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
-      zigbee_on_joined(ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
+      if (s_app_bound && s_app.on_joined)
+        s_app.on_joined(ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
       kick_lqi_poll();
     }
     break;
@@ -435,10 +403,11 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
     {
       ESP_LOGI(TAG, "Joined (ch %d, pan 0x%04x): keep powered ~10s so NVRAM commits",
                ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
-      zigbee_on_joined(ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
+      if (s_app_bound && s_app.on_joined)
+        s_app.on_joined(ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
       kick_lqi_poll();
     }
-    else if (zigbee_pairing_open())
+    else if (app_pairing_open())
     {
       const char *bdb = zigbee_bdb_status_name(st);
       if (bdb)
@@ -461,7 +430,8 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
   {
     const ezb_zdo_signal_leave_params_t *lp = ezb_app_signal_get_params(s);
     ESP_LOGI(TAG, "Local leave confirmed (type=0x%02x)", lp ? lp->leave_type : 0);
-    zigbee_on_left();
+    if (s_app_bound && s_app.on_left)
+      s_app.on_left();
     break;
   }
   case EZB_NWK_SIGNAL_DEVICE_ASSOCIATED:
@@ -481,9 +451,10 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
 
 // ---- endpoints ----
 
-// Basic + Identify + Groups + Scenes + On/Off server (stock light
-// template), manufacturer/model stamped, device ID overridden for the
-// switch endpoints so hubs interview them as before.
+// Stock On/Off Light template (Basic + Identify + Groups + Scenes +
+// On/Off servers), stamped with the app's manufacturer/model, device ID
+// overridden per entry. Deliberately plain switches only: no lock-cluster
+// PIN/keypad baggage, no Window Covering sliders for binary functions.
 static ezb_af_ep_desc_t output_endpoint(uint8_t endpoint, uint16_t device_id)
 {
   ezb_zha_on_off_light_config_t light_cfg = EZB_ZHA_ON_OFF_LIGHT_CONFIG();
@@ -491,9 +462,9 @@ static ezb_af_ep_desc_t output_endpoint(uint8_t endpoint, uint16_t device_id)
   ezb_zcl_cluster_desc_t basic =
       ezb_af_endpoint_get_cluster_desc(ep, EZB_ZCL_CLUSTER_ID_BASIC, EZB_ZCL_CLUSTER_SERVER);
   ezb_zcl_basic_cluster_desc_add_attr(basic, EZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
-                                      (void *)ZB_MANUFACTURER_NAME);
+                                      (void *)s_app.manufacturer_name);
   ezb_zcl_basic_cluster_desc_add_attr(basic, EZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
-                                      (void *)ZB_MODEL_IDENTIFIER);
+                                      (void *)s_app.model_identifier);
   if (device_id != EZB_ZHA_ON_OFF_LIGHT_DEVICE_ID)
     ezb_af_ep_desc_set_app_device_id(ep, device_id);
   return ep;
@@ -501,24 +472,18 @@ static ezb_af_ep_desc_t output_endpoint(uint8_t endpoint, uint16_t device_id)
 
 static void build_endpoints(void)
 {
-  protocol_caps_t caps = protocol_registry_caps();
-  ESP_LOGI(TAG, "Build endpoints: light=%d lock=%d", (int)caps.light, (int)caps.lock);
+  zb_endpoint_desc_t table[ZB_TRANSPORT_MAX_ENDPOINTS];
+  size_t n = 0;
+  if (s_app_bound && s_app.build_table)
+    n = s_app.build_table(table, ZB_TRANSPORT_MAX_ENDPOINTS);
+  if (n > ZB_TRANSPORT_MAX_ENDPOINTS)
+    n = ZB_TRANSPORT_MAX_ENDPOINTS;
+  ESP_LOGI(TAG, "Build endpoints: %u", (unsigned)n);
   ezb_af_device_desc_t dev = ezb_af_create_device_desc();
-
-  // Door always present: On/Off Output where on = open.
-  ezb_af_device_add_endpoint_desc(
-      dev, output_endpoint(ZB_EP_DOOR, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID));
-
-  if (caps.light)
+  for (size_t i = 0; i < n; i++)
   {
     ezb_af_device_add_endpoint_desc(
-        dev, output_endpoint(ZB_EP_LIGHT, EZB_ZHA_ON_OFF_LIGHT_DEVICE_ID));
-  }
-  if (caps.lock)
-  {
-    // Remote lockout as a switch too (on = remotes disabled).
-    ezb_af_device_add_endpoint_desc(
-        dev, output_endpoint(ZB_EP_LOCK, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID));
+        dev, output_endpoint(table[i].ep, table[i].device_id));
   }
   ESP_ERROR_CHECK(ezb_af_device_desc_register(dev));
   ESP_LOGI(TAG, "device_register done");
@@ -582,7 +547,8 @@ static void zb_task(void *arg)
   // Early commissioned flag so the UI shows "Reconnecting…" (not
   // "Not joined") while the rejoin handshake runs; the FIRST_START /
   // REBOOT signals correct it moments later if wrong.
-  zigbee_on_commissioned(!ezb_bdb_is_factory_new());
+  if (s_app_bound && s_app.on_commissioned)
+    s_app.on_commissioned(!ezb_bdb_is_factory_new());
   ezb_set_tx_power(ZB_TX_POWER_DBM);
   {
     int8_t applied = 0;
@@ -616,7 +582,15 @@ static void zb_task(void *arg)
 
 // ---- public API ----
 
-void zigbee_stack_start(void)
+void zb_transport_register(const zb_app_t *app)
+{
+  if (!app)
+    return;
+  s_app = *app;
+  s_app_bound = true;
+}
+
+void zb_transport_start(void)
 {
   if (s_started)
     return;
@@ -637,7 +611,7 @@ static void channel_alarm_cb(uint32_t ch)
 
 // Pin Zigbee scanning to a single channel (0 = auto/all). Safe from any
 // task: applied in ZB context via alarm when the stack is already running.
-void zigbee_stack_set_channel(uint8_t channel)
+void zb_transport_set_channel(uint8_t channel)
 {
   if (channel != 0 && (channel < ZB_CHANNEL_CFG_MIN || channel > ZB_CHANNEL_CFG_MAX))
   {
@@ -649,7 +623,7 @@ void zigbee_stack_set_channel(uint8_t channel)
     zb_alarm_in(channel_alarm_cb, (uint32_t)channel, 100);
 }
 
-void zigbee_stack_pair(void)
+void zb_transport_pair(void)
 {
   if (!s_ready)
   {
@@ -659,80 +633,79 @@ void zigbee_stack_pair(void)
   zb_alarm_in(steer_alarm_cb, EZB_BDB_MODE_NETWORK_STEERING, 100);
 }
 
-void zigbee_stack_leave(void)
+void zb_transport_leave(void)
 {
   if (!s_ready)
     return;
   zb_alarm_in(leave_alarm_cb, 0, 100);
 }
 
-void zigbee_stack_factory_reset(void)
+void zb_transport_factory_reset(void)
 {
   if (!s_ready)
     return;
   zb_alarm_in(reset_alarm_cb, 0, 100);
 }
 
-void zigbee_stack_report(const garage_state_t *st)
+// Find the slot tracking ep, or -1. Slots are assigned in registration
+// order on first report; reports for unregistered endpoints are dropped
+// (the app only reports what its table built).
+static int report_slot(uint8_t ep)
+{
+  for (size_t i = 0; i < ZB_TRANSPORT_MAX_ENDPOINTS; i++)
+  {
+    if (s_last[i].valid && s_last[i].ep == ep)
+      return (int)i;
+  }
+  for (size_t i = 0; i < ZB_TRANSPORT_MAX_ENDPOINTS; i++)
+  {
+    if (!s_last[i].valid)
+    {
+      s_last[i].valid = true;
+      s_last[i].ep = ep;
+      s_last[i].val = 0xff;
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+void zb_transport_report_onoff(uint8_t ep, bool on)
 {
   if (!s_ready)
     return;
-  bool kick = false;
-  // Door as switch state: open = on (1), closed = off (0).
-  // Moving/unknown: keep last, the end state reports on arrival.
-  uint8_t door = s_last_door;
-  switch (st->door_state)
+  int slot = report_slot(ep);
+  if (slot < 0)
   {
-  case SECPLUS1_DOOR_OPEN:
-    door = 1;
-    break;
-  case SECPLUS1_DOOR_CLOSED:
-    door = 0;
-    break;
-  default:
-    break;
+    ESP_LOGW(TAG, "Report for unknown ep %u dropped", (unsigned)ep);
+    return;
   }
-  if (door != s_last_door && door <= 1)
-  {
-    s_last_door = door;
-    s_pending.door = door;
-    s_pending.has_door = true;
-    kick = true;
-  }
-  if (st->light_state == GARAGE_LIGHT_ON || st->light_state == GARAGE_LIGHT_OFF)
-  {
-    uint8_t on = (st->light_state == GARAGE_LIGHT_ON) ? 1 : 0;
-    if (on != s_last_onoff)
-    {
-      s_last_onoff = on;
-      s_pending.onoff = on;
-      s_pending.has_onoff = true;
-      kick = true;
-    }
-  }
-  if (st->lock_state == GARAGE_LOCK_LOCKED || st->lock_state == GARAGE_LOCK_UNLOCKED)
-  {
-    uint8_t on = (st->lock_state == GARAGE_LOCK_LOCKED) ? 1 : 0;
-    if (on != s_last_lock)
-    {
-      s_last_lock = on;
-      s_pending.lock = on;
-      s_pending.has_lock = true;
-      kick = true;
-    }
-  }
-  if (kick)
-    zb_alarm_in(report_alarm_cb, 0, 100);
+  uint8_t val = on ? 1 : 0;
+  if (s_last[slot].val == val)
+    return;
+  s_last[slot].val = val;
+  s_pending[slot].has = true;
+  s_pending[slot].ep = ep;
+  s_pending[slot].val = val;
+  zb_alarm_in(report_alarm_cb, 0, 100);
 }
 
 #else // !CONFIG_SOC_IEEE802154_SUPPORTED
 
-void zigbee_stack_start(void) {}
-void zigbee_stack_set_channel(uint8_t channel) { (void)channel; }
-void zigbee_stack_pair(void) {}
-void zigbee_stack_leave(void) {}
-void zigbee_stack_factory_reset(void) {}
-void zigbee_stack_report(const garage_state_t *st) { (void)st; }
-void zigbee_stack_poll_lqi(void) {}
+void zb_transport_register(const zb_app_t *app)
+{
+  (void)app;
+}
+void zb_transport_start(void) {}
+void zb_transport_set_channel(uint8_t channel) { (void)channel; }
+void zb_transport_pair(void) {}
+void zb_transport_leave(void) {}
+void zb_transport_factory_reset(void) {}
+void zb_transport_report_onoff(uint8_t ep, bool on)
+{
+  (void)ep;
+  (void)on;
+}
+void zb_transport_poll_lqi(void) {}
 
 #endif
