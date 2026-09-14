@@ -547,7 +547,7 @@ static void broadcast_status(void)
     char json[512];
     garage_controller_get_status_json(json, sizeof(json));
     broadcast_message(json);
-    mqtt_publish_garage_state();
+    mqtt_notify_changed();
     zigbee_report_state();
 }
 

@@ -28,6 +28,7 @@
 #include "garage_controller.h"
 #include "protocol_registry.h"
 #include "mqtt.h"
+#include "mqtt_garage.h"
 #include "zigbee.h"
 #include "ws_zigbee.h"
 
@@ -148,7 +149,9 @@ void app_main()
   // Start the garage door controller
   ESP_ERROR_CHECK(garage_controller_start());
 
-  // MQTT bridge (subscribes to {prefix}/set, publishes {prefix}/state)
+  // MQTT bridge (subscribes to {prefix}/set, publishes {prefix}/state).
+  // Garage content registers first so (re)connects pick it up.
+  mqtt_garage_register();
   ESP_ERROR_CHECK(mqtt_init());
 
   // Zigbee bridge (C6 only; no-op stub on classic builds)

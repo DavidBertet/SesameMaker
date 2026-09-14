@@ -63,7 +63,7 @@ extern "C"
   esp_err_t zigbee_factory_reset(void);
 
   // Report the latest garage state to bound Zigbee clusters (dedupe inside).
-  // Called next to mqtt_publish_garage_state(); no-op when disabled.
+  // Called next to mqtt_notify_changed(); no-op when disabled.
   void zigbee_report_state(void);
 
   // BOOT-button monitor (BOOT strapping pin, runtime sampling only).
