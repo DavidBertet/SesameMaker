@@ -19,6 +19,7 @@
 #include "ntp_sync.h"
 
 #include "websocket.h"
+#include "ws_homekit.h"
 #include "ws_mqtt.h"
 #include "ws_wifi.h"
 #include "ws_settings.h"
@@ -27,6 +28,8 @@
 #include "ws_log.h"
 
 #include "garage_controller.h"
+#include "homekit.h"
+#include "homekit_garage.h"
 #include "protocol_registry.h"
 #include "mqtt.h"
 #include "mqtt_garage.h"
@@ -145,6 +148,8 @@ void app_main()
   register_callback("zigbee_leave", ws_handle_zigbee_leave);
   register_callback("zigbee_reset", ws_handle_zigbee_reset);
 
+  register_callback("get_homekit", ws_handle_get_homekit);
+
   register_callback("log_start", ws_handle_log_start);
   register_callback("log_stop", ws_handle_log_stop);
   ws_log_init();
@@ -165,6 +170,11 @@ void app_main()
   zigbee_garage_register();
   ESP_ERROR_CHECK(zigbee_init());
   zigbee_button_init();
+
+  // HomeKit accessory. Content registers first so HAP startup picks it up;
+  // the task waits for Wi-Fi itself.
+  homekit_garage_register();
+  homekit_start();
 
   // Retrieve time from network
   start_ntp_sync();

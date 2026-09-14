@@ -12,8 +12,9 @@
   import { Switch } from '$lib/components/ui/switch'
   import { Select, SelectTrigger, SelectContent, SelectItem } from '$lib/components/ui/select'
 
-  import { Radio, RadioTower, Save, Link, LogOut, Trash2, Info } from 'lucide-svelte'
+  import { Radio, RadioTower, Save, Link, LogOut, Trash2, Info, House } from 'lucide-svelte'
   import { toast } from 'svelte-sonner'
+  import QRCode from 'qrcode'
 
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
   import { mqttState, initializeMqtt, saveMqttConfig } from 'src/core/lib/mqtt.svelte.js'
@@ -36,6 +37,7 @@
     zigbeeChannelLabel,
   } from 'src/core/lib/zigbee.js'
   import { settingsState } from 'src/core/lib/settings.svelte.js'
+  import { homekitState, initializeHomekit, refreshHomekit } from 'src/core/lib/homekit.svelte.js'
 
   // Used to indicate a password is already saved without ever showing it.
   const PASSWORD_SENTINEL = '••••••••'
@@ -44,6 +46,8 @@
   let configLoading = $state(true)
   let zigLoading = $state(true)
   let zigBusy = $state(false)
+  let hkLoading = $state(true)
+  let hkQr = $state('')
   let unsubs = $state([])
 
   let form = $state({
@@ -182,7 +186,9 @@
     // Backend rejections come as generic errors (e.g. Zigbee unsupported on
     // this build) — unlock the buttons instead of spinning forever.
     const u10 = onMessageType('error', () => setZigBusy(false))
-    unsubs = [u1, u2, u3, u4, u5, u6, u7, u8, u9, u10]
+    const u11 = initializeHomekit()
+    const u12 = onMessageType('homekit_config', () => (hkLoading = false))
+    unsubs = [u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12]
 
     return () => {
       unsubs.forEach((u) => u())
@@ -191,6 +197,22 @@
 
   onDestroy(() => {
     if (zigTimeout) clearTimeout(zigTimeout)
+  })
+
+  // Render the HomeKit pairing QR whenever the setup URI arrives. The
+  // token guards the async race (a newer URI wins).
+  let hkQrToken = 0
+  $effect(() => {
+    const uri = homekitState.config.setup_uri
+    const paired = homekitState.config.paired
+    if (!uri || paired) {
+      hkQr = ''
+      return
+    }
+    const token = ++hkQrToken
+    QRCode.toDataURL(uri, { width: 192, margin: 1 }).then((url) => {
+      if (token === hkQrToken) hkQr = url
+    })
   })
 </script>
 
@@ -448,3 +470,61 @@
     </Card.Content>
   </Card.Root>
 {/if}
+
+<Card.Root class="mt-6">
+  <Card.Header class="pb-3">
+    <div class="flex items-center justify-between">
+      <div class="space-y-1">
+        <Card.Title class="text-lg flex items-center gap-2">
+          <House class="size-4" />
+          HomeKit
+        </Card.Title>
+        <Card.Description>
+          Add SesameMaker to the Apple Home app as a garage door opener.
+        </Card.Description>
+      </div>
+      {#if hkLoading}
+        <Skeleton class="h-6 w-20" />
+      {:else if homekitState.config.paired}
+        <Badge variant="secondary">Paired</Badge>
+      {:else if homekitState.config.started}
+        <Badge variant="outline">Ready to pair</Badge>
+      {:else}
+        <Badge variant="outline">Starting…</Badge>
+      {/if}
+    </div>
+  </Card.Header>
+
+  <Card.Content class="space-y-4">
+    {#if hkLoading}
+      <Skeleton class="h-10 w-full rounded-md" />
+    {:else if homekitState.config.paired}
+      <p class="text-sm text-muted-foreground">
+        Paired with Apple Home. The setup code is hidden while paired.
+      </p>
+    {:else if hkQr}
+      <div class="flex items-center gap-4">
+        <img src={hkQr} alt="HomeKit pairing QR code" class="size-48 rounded-lg border" />
+        <div class="space-y-2">
+          <p class="text-sm text-muted-foreground">
+            Scan with the Home app, or enter the code manually.
+          </p>
+          <code class="text-sm">{homekitState.config.setup_uri}</code>
+          <div>
+            <LoadingButton variant="outline" onclick={refreshHomekit} icon={Link}>
+              Refresh code
+            </LoadingButton>
+          </div>
+        </div>
+      </div>
+    {:else}
+      <p class="text-sm text-muted-foreground">
+        {#if homekitState.config.started}
+          Waiting for the setup code…
+        {:else}
+          HomeKit is still starting — this refreshes automatically.
+        {/if}
+      </p>
+    {/if}
+  </Card.Content>
+</Card.Root>

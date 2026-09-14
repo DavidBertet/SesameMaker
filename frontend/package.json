@@ -30,6 +30,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.1.8",
     "lucide-svelte": "^0.513.0",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^4.1.8",
     "ws": "^8.18.2"
   }

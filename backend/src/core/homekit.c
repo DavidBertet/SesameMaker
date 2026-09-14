@@ -1,0 +1,213 @@
+// Copyright (c) 2026 David Bertet. Licensed under the MIT License.
+//
+// HomeKit accessory transport (core, no product knowledge).
+
+#include "homekit.h"
+
+#include "wifi.h"
+
+#include "hap.h"
+
+#include "esp_log.h"
+#include "esp_random.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static const char *TAG = "HOMEKIT";
+
+// NVS home for the setup code (hk_storage partition, "homekit" namespace).
+#define HK_NVS_PARTITION "hk_storage"
+#define HK_NVS_NAMESPACE "homekit"
+#define HK_SETUP_CODE_KEY "setup_code"
+#define HK_SETUP_ID_KEY "setup_id"
+#define HK_SETUP_CODE_LEN 12 // "XXX-XX-XXX" + nul
+#define HK_SETUP_ID_LEN 5    // 4 chars + nul
+#define HK_PAYLOAD_BUF 64
+
+// Max time to let Wi-Fi associate before starting HAP. Bounded so a down
+// AP never blocks the accessory forever (same pattern as the ZB task).
+#define HK_WIFI_WAIT_MAX_MS 15000
+#define HK_WIFI_WAIT_POLL_MS 500
+#define HK_TASK_STACK 8192
+#define HK_TASK_PRIO 5
+
+static homekit_device_t s_device;
+static bool s_device_bound = false;
+static bool s_started = false;
+static volatile bool s_ready = false;
+static char s_setup_code[HK_SETUP_CODE_LEN] = "";
+static char s_setup_id[HK_SETUP_ID_LEN] = "";
+static int s_category_id = 0;
+static char s_payload_buf[HK_PAYLOAD_BUF] = "";
+
+// Generate an 8-digit setup code formatted "XXX-XX-XXX".
+static void gen_setup_code(char *out)
+{
+  uint32_t r = esp_random();
+  snprintf(out, HK_SETUP_CODE_LEN, "%03lu-%02lu-%03lu",
+           (unsigned long)(r % 1000), (unsigned long)((r / 1000) % 100),
+           (unsigned long)((r / 100000) % 1000));
+}
+
+// Generate a 4-char base36 setup id (distinguishes our accessories).
+static void gen_setup_id(char *out)
+{
+  static const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  uint32_t r = esp_random();
+  for (int i = 0; i < 4; i++)
+  {
+    out[i] = alphabet[r % 36];
+    r /= 36;
+  }
+  out[4] = '\0';
+}
+
+// Load the setup code/id from hk_storage, generating + persisting on
+// first boot (factory reset wipes them, producing a fresh code).
+static void load_or_gen_setup(void)
+{
+  nvs_handle_t h;
+  esp_err_t ret = nvs_open_from_partition(HK_NVS_PARTITION, HK_NVS_NAMESPACE,
+                                          NVS_READWRITE, &h);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "nvs open %s failed: %s", HK_NVS_PARTITION,
+             esp_err_to_name(ret));
+    goto fallback;
+  }
+  size_t code_len = sizeof(s_setup_code);
+  size_t id_len = sizeof(s_setup_id);
+  bool have_code = nvs_get_str(h, HK_SETUP_CODE_KEY, s_setup_code, &code_len) == ESP_OK;
+  bool have_id = nvs_get_str(h, HK_SETUP_ID_KEY, s_setup_id, &id_len) == ESP_OK;
+  if (!have_code)
+  {
+    gen_setup_code(s_setup_code);
+    nvs_set_str(h, HK_SETUP_CODE_KEY, s_setup_code);
+  }
+  if (!have_id)
+  {
+    gen_setup_id(s_setup_id);
+    nvs_set_str(h, HK_SETUP_ID_KEY, s_setup_id);
+  }
+  if (!have_code || !have_id)
+    nvs_commit(h);
+  nvs_close(h);
+  ESP_LOGI(TAG, "Setup code %s id %s (%s)", s_setup_code, s_setup_id,
+           (!have_code || !have_id) ? "generated" : "stored");
+  return;
+
+fallback:
+  // Storage broken: boot pairable with a random code rather than dead.
+  gen_setup_code(s_setup_code);
+  gen_setup_id(s_setup_id);
+  ESP_LOGW(TAG, "Using ephemeral setup code %s", s_setup_code);
+}
+
+static void hap_event_logger(hap_event_t event, void *data)
+{
+  (void)data;
+  if (event == HAP_EVENT_PAIRING_STARTED)
+    ESP_LOGI(TAG, "Pairing started");
+  else if (event == HAP_EVENT_PAIRING_ABORTED)
+    ESP_LOGW(TAG, "Pairing aborted (timeout or wrong code)");
+}
+
+static void homekit_task(void *arg)
+{
+  (void)arg;
+  if (!s_device_bound || !s_device.build_accessory)
+  {
+    ESP_LOGE(TAG, "No device registered, HAP not starting");
+    vTaskDelete(NULL);
+  }
+  s_category_id = s_device.category_id;
+
+  if (!is_wifi_setup())
+  {
+    ESP_LOGI(TAG, "No STA creds (AP mode), skipping wifi wait");
+  }
+  else
+  {
+    uint32_t waited_ms = 0;
+    while (!is_wifi_connected() && waited_ms < HK_WIFI_WAIT_MAX_MS)
+    {
+      vTaskDelay(pdMS_TO_TICKS(HK_WIFI_WAIT_POLL_MS));
+      waited_ms += HK_WIFI_WAIT_POLL_MS;
+    }
+    ESP_LOGI(TAG, "wifi_connected=%d after %lums", (int)is_wifi_connected(),
+             (unsigned long)waited_ms);
+  }
+
+  load_or_gen_setup();
+  hap_set_setup_code(s_setup_code);
+  hap_set_setup_id(s_setup_id);
+
+  if (hap_init(HAP_TRANSPORT_WIFI) != HAP_SUCCESS)
+  {
+    ESP_LOGE(TAG, "hap_init failed, HAP dead");
+    vTaskDelete(NULL);
+  }
+  s_device.build_accessory();
+  hap_register_event_handler(hap_event_logger);
+  if (hap_start() != HAP_SUCCESS)
+  {
+    // Never swallow this: a dead hap_start() looks exactly like a
+    // network problem (joined Wi-Fi, no mDNS, iPhone spins forever).
+    ESP_LOGE(TAG, "hap_start failed, HAP dead (check LWIP sockets/mdns)");
+    vTaskDelete(NULL);
+  }
+  s_ready = true;
+  ESP_LOGI(TAG, "HAP started");
+  vTaskDelete(NULL);
+}
+
+void homekit_register_device(const homekit_device_t *dev)
+{
+  if (!dev)
+    return;
+  s_device = *dev;
+  s_device_bound = true;
+}
+
+void homekit_start(void)
+{
+  if (s_started)
+    return;
+  s_started = true;
+  xTaskCreate(homekit_task, "homekit", HK_TASK_STACK, NULL, HK_TASK_PRIO, NULL);
+}
+
+bool homekit_started(void)
+{
+  return s_ready;
+}
+
+bool homekit_is_paired(void)
+{
+  if (!s_ready)
+    return false;
+  return hap_get_paired_controller_count() > 0;
+}
+
+const char *homekit_setup_payload(void)
+{
+  if (!s_ready || s_setup_code[0] == '\0')
+    return NULL;
+  if (homekit_is_paired())
+    return NULL;
+  char *p = esp_hap_get_setup_payload(s_setup_code, s_setup_id, false,
+                                      (hap_cid_t)s_category_id);
+  if (!p)
+    return NULL;
+  snprintf(s_payload_buf, sizeof(s_payload_buf), "%s", p);
+  free(p);
+  return s_payload_buf;
+}

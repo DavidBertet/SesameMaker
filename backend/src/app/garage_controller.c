@@ -9,6 +9,7 @@
 
 #include "constants.h"
 #include "garage_uart.h"
+#include "homekit_garage.h"
 #include "mqtt.h"
 #include "zigbee.h"
 #include "protocol_drycontact.h"
@@ -549,6 +550,7 @@ static void broadcast_status(void)
     broadcast_message(json);
     mqtt_notify_changed();
     zigbee_report_state();
+    homekit_report_state();
 }
 
 static void garage_task(void *pv)
