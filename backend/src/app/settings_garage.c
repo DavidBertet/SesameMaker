@@ -6,6 +6,12 @@
 
 #include "ws_settings.h"
 
+// NOTE: this TU includes no IDF headers, so CONFIG_ symbols would be
+// invisible without this (other files get sdkconfig.h transitively via
+// IDF includes — accidental, do not rely on it). The #ifdef below
+// silently took the wrong branch before this include existed.
+#include "sdkconfig.h"
+
 void settings_garage_register(void)
 {
     ws_settings_register_features(
