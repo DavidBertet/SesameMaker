@@ -19,6 +19,7 @@
 #include "ntp_sync.h"
 
 #include "websocket.h"
+#include "ws_mqtt.h"
 #include "ws_wifi.h"
 #include "ws_settings.h"
 #include "ws_garage.h"
