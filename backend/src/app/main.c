@@ -30,6 +30,7 @@
 #include "protocol_registry.h"
 #include "mqtt.h"
 #include "mqtt_garage.h"
+#include "settings_garage.h"
 #include "zigbee.h"
 #include "zigbee_garage.h"
 #include "ws_zigbee.h"
@@ -111,6 +112,9 @@ void app_main()
   // Init hardware
   ESP_ERROR_CHECK(protocol_registry_init());
   ESP_ERROR_CHECK(garage_controller_init());
+
+  // Product content registers before any transport serves it.
+  settings_garage_register();
 
   // Register websocket callbacks
   register_callback("wifi_status", ws_handle_wifi_status);

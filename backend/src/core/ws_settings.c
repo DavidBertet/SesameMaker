@@ -37,20 +37,23 @@ const char *TAG = "WS_SETTINGS";
 static char json[2176];
 static char system_info[2048];
 
+// Product feature flags (see ws_settings_register_features).
+static const char *s_feature_pairs = "";
+
+void ws_settings_register_features(const char *json_pairs)
+{
+    s_feature_pairs = (json_pairs) ? json_pairs : "";
+}
+
 void get_settings_info(char *buffer, size_t buffer_size)
 {
     bool isWifiConnected = is_wifi_connected();
     bool isWifiSetup = is_wifi_setup();
     bool requiresOTAPassword = strlen(OTA_PASSWORD) != 0;
     snprintf(buffer, buffer_size,
-             "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"features\":{\"zigbee\":%s}}",
+             "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"features\":{%s}}",
              requiresOTAPassword ? "true" : "false", isWifiConnected ? "true" : "false", isWifiSetup ? "true" : "false",
-#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
-             "true"
-#else
-             "false"
-#endif
-    );
+             s_feature_pairs);
 }
 
 void ws_handle_get_settings(const cJSON *root, int sockfd)
