@@ -1,6 +1,6 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-import { planDoorTransition } from 'src/app/lib/garage.js'
+import { planDoorTransition } from '../app/lib/garage.js'
 
 let isConnected = false
 let logIntervals = new Set()
