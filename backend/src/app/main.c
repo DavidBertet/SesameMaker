@@ -149,6 +149,7 @@ void app_main()
   register_callback("zigbee_reset", ws_handle_zigbee_reset);
 
   register_callback("get_homekit", ws_handle_get_homekit);
+  register_callback("set_homekit", ws_handle_set_homekit);
 
   register_callback("log_start", ws_handle_log_start);
   register_callback("log_stop", ws_handle_log_stop);

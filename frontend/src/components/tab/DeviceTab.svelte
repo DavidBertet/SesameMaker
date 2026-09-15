@@ -37,7 +37,12 @@
     zigbeeChannelLabel,
   } from 'src/core/lib/zigbee.js'
   import { settingsState } from 'src/core/lib/settings.svelte.js'
-  import { homekitState, initializeHomekit, refreshHomekit } from 'src/core/lib/homekit.svelte.js'
+  import {
+    homekitState,
+    initializeHomekit,
+    refreshHomekit,
+    saveHomekitConfig,
+  } from 'src/core/lib/homekit.svelte.js'
 
   // Used to indicate a password is already saved without ever showing it.
   const PASSWORD_SENTINEL = '••••••••'
@@ -47,6 +52,7 @@
   let zigLoading = $state(true)
   let zigBusy = $state(false)
   let hkLoading = $state(true)
+  let hkBusy = $state(false)
   let hkQr = $state('')
   let unsubs = $state([])
 
@@ -173,6 +179,39 @@
     saveZigbeeChannel(Number(value))
   }
 
+  // HomeKit enable flip. Same safety net as Zigbee: the broadcast carries
+  // the fresh state, the timeout guards a lost reply.
+  let hkTimeout = $state(null)
+
+  function setHkBusy(on) {
+    hkBusy = on
+    if (hkTimeout) {
+      clearTimeout(hkTimeout)
+      hkTimeout = null
+    }
+    if (on) {
+      hkTimeout = setTimeout(() => {
+        hkBusy = false
+        hkTimeout = null
+        toast.error('HomeKit action timed out — no reply from the device')
+      }, 8000)
+    }
+  }
+
+  function toggleHomekit(enabled) {
+    setHkBusy(true)
+    saveHomekitConfig(enabled)
+  }
+
+  function handleHkSaved(data) {
+    setHkBusy(false)
+    if (data.success) {
+      toast.success(homekitState.config.enabled ? 'HomeKit enabled' : 'HomeKit disabled')
+    } else {
+      toast.error('HomeKit action failed')
+    }
+  }
+
   onMount(() => {
     const u1 = initializeMqtt()
     const u2 = onMessageType('mqtt_config', syncFormFromConfig)
@@ -185,9 +224,13 @@
     const u9 = onMessageType('zigbee_reset', handleZigResult('reset'))
     // Backend rejections come as generic errors (e.g. Zigbee unsupported on
     // this build) — unlock the buttons instead of spinning forever.
-    const u10 = onMessageType('error', () => setZigBusy(false))
+    const u10 = onMessageType('error', () => {
+      setZigBusy(false)
+      setHkBusy(false)
+    })
     const u11 = initializeHomekit()
     const u12 = onMessageType('homekit_config', () => (hkLoading = false))
+    const u13 = onMessageType('homekit_saved', handleHkSaved)
     unsubs = [u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12]
 
     return () => {
@@ -197,6 +240,7 @@
 
   onDestroy(() => {
     if (zigTimeout) clearTimeout(zigTimeout)
+    if (hkTimeout) clearTimeout(hkTimeout)
   })
 
   // Render the HomeKit pairing QR whenever the setup URI arrives. The
@@ -216,7 +260,7 @@
   })
 </script>
 
-<SectionHeader title="Device Settings" subtitle="MQTT bridge and Zigbee connectivity" />
+<SectionHeader title="Device Settings" subtitle="MQTT bridge, Zigbee and HomeKit connectivity" />
 
 <Card.Root>
   <Card.Header class="pb-3">
@@ -236,6 +280,8 @@
         <Skeleton class="h-6 w-20" />
       {:else if configured}
         <Badge variant="secondary">{modeMeta(mqttState.config.mode).label}</Badge>
+      {:else}
+        <Badge variant="outline">Disabled</Badge>
       {/if}
     </div>
   </Card.Header>
@@ -485,6 +531,8 @@
       </div>
       {#if hkLoading}
         <Skeleton class="h-6 w-20" />
+      {:else if !homekitState.config.enabled}
+        <Badge variant="outline">Disabled</Badge>
       {:else if homekitState.config.paired}
         <Badge variant="secondary">Paired</Badge>
       {:else if homekitState.config.started}
@@ -498,33 +546,49 @@
   <Card.Content class="space-y-4">
     {#if hkLoading}
       <Skeleton class="h-10 w-full rounded-md" />
-    {:else if homekitState.config.paired}
-      <p class="text-sm text-muted-foreground">
-        Paired with Apple Home. The setup code is hidden while paired.
-      </p>
-    {:else if hkQr}
-      <div class="flex items-center gap-4">
-        <img src={hkQr} alt="HomeKit pairing QR code" class="size-48 rounded-lg border" />
-        <div class="space-y-2">
-          <p class="text-sm text-muted-foreground">
-            Scan with the Home app, or enter the code manually.
-          </p>
-          <code class="text-sm">{homekitState.config.setup_uri}</code>
-          <div>
-            <LoadingButton variant="outline" onclick={refreshHomekit} icon={Link}>
-              Refresh code
-            </LoadingButton>
+    {:else}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div class="space-y-0.5">
+          <Label class="font-medium">HomeKit accessory</Label>
+          <p class="text-xs text-muted-foreground">Turn on, then pair with your Apple device</p>
+        </div>
+        <Switch
+          checked={homekitState.config.enabled}
+          onCheckedChange={toggleHomekit}
+          disabled={hkBusy}
+          aria-label="Enable HomeKit"
+        />
+      </div>
+    {/if}
+    {#if !hkLoading && homekitState.config.enabled}
+      {#if homekitState.config.paired}
+        <p class="text-sm text-muted-foreground">
+          Paired with Apple Home. The setup code is hidden while paired.
+        </p>
+      {:else if hkQr}
+        <div class="flex items-center gap-4">
+          <img src={hkQr} alt="HomeKit pairing QR code" class="size-48 rounded-lg border" />
+          <div class="space-y-2">
+            <p class="text-sm text-muted-foreground">
+              Scan with the Home app, or enter the code manually.
+            </p>
+            <code class="text-sm">{homekitState.config.setup_uri}</code>
+            <div>
+              <LoadingButton variant="outline" onclick={refreshHomekit} icon={Link}>
+                Refresh code
+              </LoadingButton>
+            </div>
           </div>
         </div>
-      </div>
-    {:else}
-      <p class="text-sm text-muted-foreground">
-        {#if homekitState.config.started}
-          Waiting for the setup code…
-        {:else}
-          HomeKit is still starting — this refreshes automatically.
-        {/if}
-      </p>
+      {:else}
+        <p class="text-sm text-muted-foreground">
+          {#if homekitState.config.started}
+            Waiting for the setup code…
+          {:else}
+            HomeKit is still starting — this refreshes automatically.
+          {/if}
+        </p>
+      {/if}
     {/if}
   </Card.Content>
 </Card.Root>

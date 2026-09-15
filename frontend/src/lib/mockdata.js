@@ -267,6 +267,13 @@ export function generateMockResponse(data) {
     case 'get_homekit':
       return [{ type: 'homekit_config', ...homekit }]
 
+    case 'set_homekit':
+      if (typeof data.enabled === 'boolean') homekit.enabled = data.enabled
+      return [
+        { type: 'homekit_saved', success: true },
+        { type: 'homekit_config', ...homekit },
+      ]
+
     case 'set_zigbee_config':
       if (typeof data.enabled === 'boolean') zigbee.enabled = data.enabled
       if (!zigbee.enabled) zigbee.pairing_remaining_s = 0
@@ -387,6 +394,7 @@ let zigbee = {
 
 let homekit = {
   supported: true,
+  enabled: true,
   started: true,
   paired: false,
   setup_uri: 'X-HM://00527813XES32',

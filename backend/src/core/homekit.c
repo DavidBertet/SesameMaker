@@ -4,6 +4,7 @@
 
 #include "homekit.h"
 
+#include "storage.h"
 #include "wifi.h"
 #include "ws_homekit.h"
 
@@ -42,12 +43,46 @@ static const char *TAG = "HOMEKIT";
 
 static homekit_device_t s_device;
 static bool s_device_bound = false;
-static bool s_started = false;
+static bool s_task_running = false;
 static volatile bool s_ready = false;
+static bool s_enabled = false; // persisted in default NVS (see below)
 static char s_setup_code[HK_SETUP_CODE_LEN] = "";
 static char s_setup_id[HK_SETUP_ID_LEN] = "";
 static int s_category_id = 0;
 static char s_payload_buf[HK_PAYLOAD_BUF] = "";
+
+// Enabled flag lives in default NVS next to the Zigbee/MQTT config blobs
+// (hk_storage holds HAP pairing data, not our own settings).
+#define HK_CFG_KEY "hk_cfg"
+typedef struct
+{
+  uint8_t enabled;
+  uint8_t _reserved[3];
+} hk_persist_t;
+
+static void persist_enabled(void)
+{
+  hk_persist_t p;
+  memset(&p, 0, sizeof(p));
+  p.enabled = s_enabled ? 1 : 0;
+  write_blob(HK_CFG_KEY, &p, sizeof(p));
+}
+
+static void load_enabled(void)
+{
+  size_t n = 0;
+  hk_persist_t p;
+  memset(&p, 0, sizeof(p));
+  if (read_blob(HK_CFG_KEY, NULL, &n) == ESP_OK && n == sizeof(p) &&
+      read_blob(HK_CFG_KEY, &p, &n) == ESP_OK)
+  {
+    s_enabled = p.enabled != 0;
+  }
+  else
+  {
+    persist_enabled();
+  }
+}
 
 // Generate an 8-digit setup code formatted "XXX-XX-XXX".
 static void gen_setup_code(char *out)
@@ -137,6 +172,13 @@ static void homekit_task(void *arg)
   if (!s_device_bound || !s_device.build_accessory)
   {
     ESP_LOGE(TAG, "No device registered, HAP not starting");
+    s_task_running = false;
+    vTaskDelete(NULL);
+  }
+  if (!s_enabled)
+  {
+    ESP_LOGI(TAG, "Disabled, HAP not starting");
+    s_task_running = false;
     vTaskDelete(NULL);
   }
   s_category_id = s_device.category_id;
@@ -156,6 +198,13 @@ static void homekit_task(void *arg)
     ESP_LOGI(TAG, "wifi_connected=%d after %lums", (int)is_wifi_connected(),
              (unsigned long)waited_ms);
   }
+  if (!s_enabled)
+  {
+    // Disabled while waiting for Wi-Fi: stand down.
+    ESP_LOGI(TAG, "Disabled while waiting, HAP not starting");
+    s_task_running = false;
+    vTaskDelete(NULL);
+  }
 
   load_or_gen_setup();
   hap_set_setup_code(s_setup_code);
@@ -164,6 +213,7 @@ static void homekit_task(void *arg)
   if (hap_init(HAP_TRANSPORT_WIFI) != HAP_SUCCESS)
   {
     ESP_LOGE(TAG, "hap_init failed, HAP dead");
+    s_task_running = false;
     vTaskDelete(NULL);
   }
   s_device.build_accessory();
@@ -173,11 +223,13 @@ static void homekit_task(void *arg)
     // Never swallow this: a dead hap_start() looks exactly like a
     // network problem (joined Wi-Fi, no mDNS, iPhone spins forever).
     ESP_LOGE(TAG, "hap_start failed, HAP dead (check LWIP sockets/mdns)");
+    s_task_running = false;
     vTaskDelete(NULL);
   }
   s_ready = true;
   ESP_LOGI(TAG, "HAP started");
   broadcast_homekit_config();
+  s_task_running = false;
   vTaskDelete(NULL);
 }
 
@@ -191,10 +243,45 @@ void homekit_register_device(const homekit_device_t *dev)
 
 void homekit_start(void)
 {
-  if (s_started)
+  load_enabled();
+  if (!s_enabled || s_task_running || s_ready)
     return;
-  s_started = true;
+  s_task_running = true;
   xTaskCreate(homekit_task, "homekit", HK_TASK_STACK, NULL, HK_TASK_PRIO, NULL);
+}
+
+esp_err_t homekit_set_enabled(bool enabled)
+{
+  load_enabled();
+  if (s_enabled == enabled)
+  {
+    if (enabled && !s_ready)
+      homekit_start(); // retry a previously failed start
+    return ESP_OK;
+  }
+  s_enabled = enabled;
+  persist_enabled();
+  if (!enabled)
+  {
+    if (s_ready)
+    {
+      hap_stop();
+      s_ready = false;
+    }
+    ESP_LOGI(TAG, "HomeKit disabled");
+  }
+  else
+  {
+    ESP_LOGI(TAG, "HomeKit enabled, starting stack");
+    homekit_start();
+  }
+  broadcast_homekit_config();
+  return ESP_OK;
+}
+
+bool homekit_enabled(void)
+{
+  return s_enabled;
 }
 
 bool homekit_started(void)

@@ -28,7 +28,14 @@ extern "C"
   // Bind product content. Call once before homekit_start().
   void homekit_register_device(const homekit_device_t *dev);
 
-  // Start the HAP task (idempotent): waits for Wi-Fi (bounded), provisions
+  // Enabled flag (persisted in default NVS next to the Zigbee/MQTT
+  // config; default off). Disabling a running stack stops HAP;
+  // enabling starts it. Broadcasts the new state.
+  esp_err_t homekit_set_enabled(bool enabled);
+  bool homekit_enabled(void);
+
+  // Start the HAP task (idempotent): loads the persisted enabled flag
+  // and no-ops when disabled. Waits for Wi-Fi (bounded), provisions
   // the setup code, inits HAP, builds the accessory, starts HAP. Loud
   // failures: hap_start() errors are fatal-logged, never swallowed (the
   // stock example ignores the return and dies silent).

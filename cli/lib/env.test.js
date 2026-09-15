@@ -49,11 +49,11 @@ test('PIO-flashed and IDF-assumed partition tables agree', () => {
   const assumed = defaults.match(/CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="(.+?)"/)[1]
   const flashed = ini.match(/^\s*board_build\.partitions\s*=\s*(.+?)\s*$/m)[1]
   assert.equal(assumed, flashed)
-  // No overlaps, 4K-aligned, fills flash exactly. NOTE: the ZB rows keep
-  // subtype `fat` per the Espressif ZB examples (validated on hardware:
-  // the stack joins and persists NVRAM on them). PIO buildfs sizes the
+  // No overlaps, 4K-aligned, fills flash exactly. NOTE: zb_storage is
+  // subtype `nvs` per the ESP Zigbee SDK v2.x migration (validated on
+  // hardware: the stack joins and persists on it). PIO buildfs sizes the
   // SPIFFS image from the LAST data spiffs/fat/littlefs row, so `spiffs`
-  // must stay last — the ZB rows sit before it and don't affect sizing.
+  // must stay last.
   const csv = fs.readFileSync(path.resolve('backend', flashed), 'utf8')
   const rows = []
   for (const line of csv.split('\n')) {
@@ -71,12 +71,13 @@ test('PIO-flashed and IDF-assumed partition tables agree', () => {
     end = r.o + r.s
   }
   assert.equal(end, 0x400000)
-  // FS-subtype rows, in layout order: ZB persistence first, spiffs last
-  // (buildfs sizes from the last one).
+  // FS-subtype rows, in layout order: factory/reserved first, spiffs last
+  // (buildfs sizes from the last one). NVS rows (nvs, zb_storage,
+  // hk_storage) are storage partitions, excluded by design.
   assert.deepEqual(
     rows
       .filter((r) => r.type === 'data' && ['spiffs', 'fat', 'littlefs'].includes(r.subtype))
       .map((r) => r.name),
-    ['zb_storage', 'zb_fct', 'spiffs'],
+    ['zb_fct', 'spiffs'],
   )
 })

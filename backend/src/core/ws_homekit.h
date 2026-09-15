@@ -14,6 +14,7 @@ extern "C"
 #endif
 
   void ws_handle_get_homekit(const cJSON *root, int sockfd);
+  void ws_handle_set_homekit(const cJSON *root, int sockfd);
 
   // Push current state to all clients (start, pair, unpair). The card
   // subscribes to homekit_config, so no polling is needed.
