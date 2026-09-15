@@ -5,6 +5,10 @@ cd "$(dirname "$0")"
 cc -std=c11 -Wall -Wextra -o /tmp/test_secplus1 \
     test_secplus1.c ../src/app/secplus1.c -lm
 /tmp/test_secplus1
+# Native secplus2 wireline codec (MIT, src/app/secplus2.c).
+cc -std=c11 -Wall -Wextra -o /tmp/test_secplus2 \
+    test_secplus2.c ../src/app/secplus2.c -lm
+/tmp/test_secplus2
 cc -std=c11 -Wall -Wextra -o /tmp/test_raw_json \
     test_raw_json.c ../src/app/raw_json.c
 /tmp/test_raw_json
