@@ -17,6 +17,8 @@
   import QRCode from 'qrcode'
 
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import HomekitSetupLabel from 'src/core/components/common/HomekitSetupLabel.svelte'
+  import { homekitSetupCodeFromUri, formatHomekitSetupCode } from 'src/core/lib/homekit.js'
   import { mqttState, initializeMqtt, saveMqttConfig } from 'src/core/lib/mqtt.svelte.js'
   import {
     zigbeeState,
@@ -54,6 +56,8 @@
   let hkBusy = $state(false)
   let hkQr = $state('')
   let unsubs = $state([])
+  let hkCode = $derived(homekitSetupCodeFromUri(homekitState.config.setup_uri))
+  let hkCodeDisplay = $derived(formatHomekitSetupCode(hkCode))
 
   let form = $state({
     mode: 'off', // 'off' | 'master' | 'ha'
@@ -253,7 +257,12 @@
       return
     }
     const token = ++hkQrToken
-    QRCode.toDataURL(uri, { width: 192, margin: 1 }).then((url) => {
+    QRCode.toDataURL(uri, {
+      width: 480,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#000000', light: '#ffffff' },
+    }).then((url) => {
       if (token === hkQrToken) hkQr = url
     })
   })
@@ -565,13 +574,15 @@
           Paired with Apple Home. The setup code is hidden while paired.
         </p>
       {:else if hkQr}
-        <div class="flex items-center gap-4">
-          <img src={hkQr} alt="HomeKit pairing QR code" class="size-48 rounded-lg border" />
-          <div class="space-y-2">
+        <div class="flex items-start gap-4">
+          <HomekitSetupLabel setupUri={homekitState.config.setup_uri} qrSrc={hkQr} />
+          <div class="space-y-2 pt-1">
             <p class="text-sm text-muted-foreground">
               Scan with the Home app, or enter the code manually.
             </p>
-            <code class="text-sm">{homekitState.config.setup_uri}</code>
+            {#if hkCodeDisplay}
+              <code class="text-sm tracking-widest">{hkCodeDisplay}</code>
+            {/if}
           </div>
         </div>
       {:else}
