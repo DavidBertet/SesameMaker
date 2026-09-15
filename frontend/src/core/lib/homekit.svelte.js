@@ -33,7 +33,3 @@ export function initializeHomekit() {
 export function saveHomekitConfig(enabled) {
   sendMessage({ type: 'set_homekit', enabled })
 }
-
-export function refreshHomekit() {
-  sendMessage({ type: 'get_homekit' })
-}

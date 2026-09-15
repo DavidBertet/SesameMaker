@@ -40,7 +40,6 @@
   import {
     homekitState,
     initializeHomekit,
-    refreshHomekit,
     saveHomekitConfig,
   } from 'src/core/lib/homekit.svelte.js'
 
@@ -573,11 +572,6 @@
               Scan with the Home app, or enter the code manually.
             </p>
             <code class="text-sm">{homekitState.config.setup_uri}</code>
-            <div>
-              <LoadingButton variant="outline" onclick={refreshHomekit} icon={Link}>
-                Refresh code
-              </LoadingButton>
-            </div>
           </div>
         </div>
       {:else}
