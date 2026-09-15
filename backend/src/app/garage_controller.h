@@ -8,6 +8,7 @@
 #include "esp_err.h"
 #include "protocol.h"
 #include "secplus1.h"
+#include "secplus2.h"
 
 typedef enum
 {
@@ -67,10 +68,13 @@ esp_err_t garage_controller_light_action(const char *action); // "toggle","on","
 esp_err_t garage_controller_lock_action(const char *action);  // "toggle","lock","unlock"
 
 esp_err_t garage_controller_get_state(garage_state_t *out);
-// Protocol-driver upcalls: dry-contact reports reed/door snapshots here.
-// The controller owns broadcast + MQTT; drivers never send WS frames.
+// Protocol-driver upcalls: dry-contact reports reed/door snapshots here,
+// secplus2 reports bus status/motion here. The controller owns broadcast +
+// MQTT; drivers never send WS frames.
 void garage_controller_report_door(secplus1_door_state_t door, bool moving);
 void garage_controller_report_sensors(bool open_hit, bool close_hit, bool valid);
+void garage_controller_report_secplus2_status(const secplus2_status_t *st);
+void garage_controller_report_motion(void);
 esp_err_t garage_controller_sync(void); // force a status query round
 bool garage_controller_light_on(void);
 bool garage_controller_locked(void);

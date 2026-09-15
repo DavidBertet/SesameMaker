@@ -1,8 +1,8 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 //
 // Manual protocol selection (no auto-detect). The UI lists every known id,
-// marks unsupported ones (secplus2 stub) via "supported", and adapts itself
-// from the caps object.
+// marks unsupported ones via "supported", and adapts itself from the caps
+// object.
 
 #include "ws_protocol.h"
 
@@ -112,7 +112,7 @@ void ws_handle_set_protocol(const cJSON *root, int sockfd)
     }
     if (!protocol_id_supported(id))
     {
-        send_error("Protocol not supported yet (secplus2 stub)");
+        send_error("Protocol not supported yet");
         return;
     }
     protocol_id_t prev_id = protocol_registry_get();

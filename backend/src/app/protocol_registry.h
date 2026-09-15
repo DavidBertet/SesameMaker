@@ -10,6 +10,6 @@
 // status/caps/guards and is reloaded at boot.
 esp_err_t protocol_registry_init(void);
 protocol_id_t protocol_registry_get(void);
-// Persists and activates. Secplus2 (no driver yet) is rejected.
+// Persists and activates. Unknown/unsupported ids are rejected.
 esp_err_t protocol_registry_set(protocol_id_t id);
 protocol_caps_t protocol_registry_caps(void);

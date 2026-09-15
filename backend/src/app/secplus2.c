@@ -356,3 +356,166 @@ int secplus2_decode_command(const uint8_t packet[SECPLUS2_WIRELINE_LEN],
     }
     return 0;
 }
+
+// ==== Link layer ====
+
+void secplus2_framer_init(secplus2_framer_t *f)
+{
+    f->n = 0;
+    f->last_ms = 0;
+}
+
+void secplus2_framer_expire(secplus2_framer_t *f, uint32_t now_ms)
+{
+    if (f->n > 0 && now_ms - f->last_ms > SECPLUS2_RX_IDLE_TIMEOUT_MS)
+    {
+        f->n = 0;
+    }
+}
+
+bool secplus2_framer_feed(secplus2_framer_t *f, uint8_t byte, uint32_t now_ms,
+                          uint8_t out[SECPLUS2_WIRELINE_LEN])
+{
+    secplus2_framer_expire(f, now_ms);
+
+    if (f->n < 3)
+    {
+        // Hunting: only header bytes advance the match.
+        if (f->n == 0)
+        {
+            if (byte != 0x55)
+            {
+                return false;
+            }
+            f->buf[0] = byte;
+            f->n = 1;
+        }
+        else if (f->n == 1)
+        {
+            if (byte == 0x01)
+            {
+                f->buf[1] = byte;
+                f->n = 2;
+            }
+            else if (byte != 0x55)
+            {
+                f->n = 0;
+            }
+            // else: repeated 0x55, stay at n=1.
+        }
+        else // n == 2
+        {
+            if (byte == 0x00)
+            {
+                f->buf[2] = byte;
+                f->n = 3;
+            }
+            else if (byte == 0x55)
+            {
+                f->n = 1;
+            }
+            else
+            {
+                f->n = 0;
+            }
+        }
+        f->last_ms = now_ms;
+        return false;
+    }
+
+    // Mid-packet re-sync restarts the frame (payload is binary, but a real
+    // 55 01 00 inside 16 payload bytes is far less likely than a new frame
+    // after line noise swallowed our hunt).
+    if (f->n >= 5 && f->buf[f->n - 2] == 0x55 && f->buf[f->n - 1] == 0x01 &&
+        byte == 0x00)
+    {
+        f->buf[0] = 0x55;
+        f->buf[1] = 0x01;
+        f->buf[2] = 0x00;
+        f->n = 3;
+        f->last_ms = now_ms;
+        return false;
+    }
+
+    f->buf[f->n++] = byte;
+    f->last_ms = now_ms;
+    if (f->n == SECPLUS2_WIRELINE_LEN)
+    {
+        f->n = 0;
+        for (int i = 0; i < SECPLUS2_WIRELINE_LEN; i++)
+        {
+            out[i] = f->buf[i];
+        }
+        return true;
+    }
+    return false;
+}
+
+secplus1_door_state_t secplus2_door_from_nibble(uint8_t nibble)
+{
+    switch (nibble)
+    {
+    case 1:
+        return SECPLUS1_DOOR_OPEN;
+    case 2:
+        return SECPLUS1_DOOR_CLOSED;
+    case 3:
+        return SECPLUS1_DOOR_STOPPED;
+    case 4:
+        return SECPLUS1_DOOR_OPENING;
+    case 5:
+        return SECPLUS1_DOOR_CLOSING;
+    default:
+        return SECPLUS1_DOOR_UNKNOWN;
+    }
+}
+
+bool secplus2_parse_status(uint16_t command, uint8_t nibble, uint8_t byte1,
+                           uint8_t byte2, secplus2_status_t *out)
+{
+    if (command != SECPLUS2_CMD_STATUS || !out)
+    {
+        return false;
+    }
+    out->door = secplus2_door_from_nibble(nibble & 0x0Fu);
+    out->light = (int8_t)((byte2 >> 1) & 1u);
+    out->lock = (int8_t)(byte2 & 1u);
+    // Opener reports 1 = path clear.
+    out->obstruction = (((byte1 >> 6) & 1u) == 0);
+    out->learn = (((byte2 >> 5) & 1u) != 0);
+    return true;
+}
+
+secplus2_tx_t secplus2_build_door(uint8_t action, int phase)
+{
+    secplus2_tx_t tx;
+    tx.command = SECPLUS2_CMD_DOOR_ACTION;
+    // Payload layout: byte2 | byte1<<8 | nibble<<16 (see encode_command).
+    uint8_t byte1 = (phase == 0) ? 1u : 0u;
+    tx.payload = 1u | ((uint32_t)byte1 << 8) | ((uint32_t)action << 16);
+    return tx;
+}
+
+secplus2_tx_t secplus2_build_light(uint8_t action)
+{
+    secplus2_tx_t tx;
+    tx.command = SECPLUS2_CMD_LIGHT;
+    tx.payload = action;
+    return tx;
+}
+
+secplus2_tx_t secplus2_build_lock(uint8_t action)
+{
+    secplus2_tx_t tx;
+    tx.command = SECPLUS2_CMD_LOCK;
+    tx.payload = action;
+    return tx;
+}
+
+secplus2_tx_t secplus2_build_get_status(void)
+{
+    secplus2_tx_t tx;
+    tx.command = SECPLUS2_CMD_GET_STATUS;
+    tx.payload = 0;
+    return tx;
+}

@@ -173,6 +173,10 @@ static void test_roundtrip_fuzz(void)
     }
 }
 
+static void test_framer(void);
+static void test_status_parse(void);
+static void test_builders(void);
+
 int main(void)
 {
     test_encode_vectors();
@@ -181,6 +185,128 @@ int main(void)
     test_limits();
     test_bad_packets();
     test_roundtrip_fuzz();
+    test_framer();
+    test_status_parse();
+    test_builders();
     printf("test_secplus2: %d test groups passed\n", tests_run);
     return 0;
+}
+
+static void test_framer(void)
+{
+    tests_run++;
+    secplus2_framer_t f;
+    uint8_t out[SECPLUS2_WIRELINE_LEN];
+    secplus2_framer_init(&f);
+
+    // Garbage before a frame is ignored (hunt only advances on 55/01/00).
+    const uint8_t garbage[] = {0x00, 0xFF, 0x55, 0x12, 0x55, 0x01, 0x44};
+    for (unsigned i = 0; i < sizeof(garbage); i++)
+    {
+        assert(secplus2_framer_feed(&f, garbage[i], 1000 + i, out) == false);
+    }
+    // Feed a full capture in two chunks: no packet until the last byte.
+    for (int i = 0; i < 19; i++)
+    {
+        bool done = secplus2_framer_feed(&f, V_CODE[3][i], 2000 + i, out);
+        assert(done == (i == 18));
+    }
+    assert(memcmp(out, V_CODE[3], SECPLUS2_WIRELINE_LEN) == 0);
+
+    // Re-sync mid-packet restarts the frame instead of emitting garbage.
+    secplus2_framer_init(&f);
+    assert(secplus2_framer_feed(&f, 0x55, 3000, out) == false);
+    assert(secplus2_framer_feed(&f, 0x01, 3001, out) == false);
+    assert(secplus2_framer_feed(&f, 0x00, 3002, out) == false);
+    assert(secplus2_framer_feed(&f, 0xAA, 3003, out) == false);
+    assert(secplus2_framer_feed(&f, 0xBB, 3004, out) == false);
+    assert(secplus2_framer_feed(&f, 0x55, 3005, out) == false);
+    assert(secplus2_framer_feed(&f, 0x01, 3006, out) == false);
+    assert(secplus2_framer_feed(&f, 0x00, 3007, out) == false); // restart
+    for (int i = 3; i < 19; i++)
+    {
+        bool done = secplus2_framer_feed(&f, V_CODE[5][i], 3008 + i, out);
+        assert(done == (i == 18));
+    }
+    assert(memcmp(out, V_CODE[5], SECPLUS2_WIRELINE_LEN) == 0);
+
+    // Stale partials expire after the idle timeout.
+    secplus2_framer_init(&f);
+    assert(secplus2_framer_feed(&f, 0x55, 4000, out) == false);
+    assert(secplus2_framer_feed(&f, 0x01, 4001, out) == false);
+    secplus2_framer_expire(&f, 4001 + SECPLUS2_RX_IDLE_TIMEOUT_MS + 1);
+    // The 0x00 below must NOT complete a frame (hunt restarted).
+    assert(secplus2_framer_feed(&f, 0x00, 4200, out) == false);
+}
+
+static void test_status_parse(void)
+{
+    tests_run++;
+    // Door nibble map 1..5, everything else unknown.
+    assert(secplus2_door_from_nibble(1) == SECPLUS1_DOOR_OPEN);
+    assert(secplus2_door_from_nibble(2) == SECPLUS1_DOOR_CLOSED);
+    assert(secplus2_door_from_nibble(3) == SECPLUS1_DOOR_STOPPED);
+    assert(secplus2_door_from_nibble(4) == SECPLUS1_DOOR_OPENING);
+    assert(secplus2_door_from_nibble(5) == SECPLUS1_DOOR_CLOSING);
+    assert(secplus2_door_from_nibble(0) == SECPLUS1_DOOR_UNKNOWN);
+    assert(secplus2_door_from_nibble(9) == SECPLUS1_DOOR_UNKNOWN);
+
+    // Non-STATUS commands are refused.
+    secplus2_status_t st;
+    assert(secplus2_parse_status(SECPLUS2_CMD_MOTION, 1, 0, 0, &st) == false);
+
+    // End to end: build a STATUS reply, decode it, parse fields.
+    // nibble=2 (closed), byte1 bit6 set (clear), byte2 = light|lock bits.
+    uint8_t pkt[SECPLUS2_WIRELINE_LEN];
+    uint32_t payload = 0x42u | ((uint32_t)0x40 << 8) | ((uint32_t)0x02 << 16);
+    assert(secplus2_encode_command(777, SECPLUS2_CLIENT_ID_DEFAULT,
+                                   SECPLUS2_CMD_STATUS, payload,
+                                   pkt) == 0);
+    // Parse from wire DATA bytes (nibble lives at data bits 8..11, beside
+    // the parity nibble), not from the packed command payload.
+    uint32_t r = 0;
+    uint64_t dev = 0;
+    uint32_t d = 0;
+    assert(secplus2_decode_wireline(pkt, &r, &dev, &d) == 0);
+    uint16_t cmd = (uint16_t)(((dev >> 24) & 0xF00ULL) | (d & 0xFFu));
+    assert(cmd == SECPLUS2_CMD_STATUS);
+    assert(secplus2_parse_status(cmd, (d >> 8) & 0xFF, (d >> 16) & 0xFF,
+                                 (d >> 24) & 0xFF, &st) == true);
+    assert(st.door == SECPLUS1_DOOR_CLOSED);
+    assert(st.light == 1); // byte2 bit1
+    assert(st.lock == 0);  // byte2 bit0
+    assert(st.obstruction == false);
+    assert(st.learn == false);
+
+    // Obstructed + locked + learn-active variant.
+    payload = 0x21u | ((uint32_t)0x00 << 8) | ((uint32_t)0x04 << 16);
+    assert(secplus2_encode_command(778, SECPLUS2_CLIENT_ID_DEFAULT,
+                                   SECPLUS2_CMD_STATUS, payload,
+                                   pkt) == 0);
+    assert(secplus2_decode_wireline(pkt, &r, &dev, &d) == 0);
+    cmd = (uint16_t)(((dev >> 24) & 0xF00ULL) | (d & 0xFFu));
+    assert(cmd == SECPLUS2_CMD_STATUS);
+    assert(secplus2_parse_status(cmd, (d >> 8) & 0xFF, (d >> 16) & 0xFF,
+                                 (d >> 24) & 0xFF, &st) == true);
+    assert(st.door == SECPLUS1_DOOR_OPENING);
+    assert(st.light == 0);
+    assert(st.lock == 1);
+    assert(st.obstruction == true); // byte1 bit6 clear = blocked
+    assert(st.learn == true);       // byte2 bit5
+}
+
+static void test_builders(void)
+{
+    tests_run++;
+    secplus2_tx_t tx = secplus2_build_door(SECPLUS2_DOOR_OPEN, 0);
+    assert(tx.command == SECPLUS2_CMD_DOOR_ACTION);
+    assert(tx.payload == (1u | ((uint32_t)1 << 8) | ((uint32_t)1 << 16)));
+    tx = secplus2_build_door(SECPLUS2_DOOR_OPEN, 1);
+    assert(tx.payload == (1u | ((uint32_t)0 << 8) | ((uint32_t)1 << 16)));
+    tx = secplus2_build_light(SECPLUS2_TOGGLE);
+    assert(tx.command == SECPLUS2_CMD_LIGHT && tx.payload == 2);
+    tx = secplus2_build_lock(SECPLUS2_ON_LOCK);
+    assert(tx.command == SECPLUS2_CMD_LOCK && tx.payload == 1);
+    tx = secplus2_build_get_status();
+    assert(tx.command == SECPLUS2_CMD_GET_STATUS && tx.payload == 0);
 }

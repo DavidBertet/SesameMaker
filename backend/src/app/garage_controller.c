@@ -14,6 +14,7 @@
 #include "zigbee.h"
 #include "protocol_drycontact.h"
 #include "protocol_registry.h"
+#include "protocol_secplus2.h"
 #include "storage.h"
 #include "websocket.h"
 
@@ -486,7 +487,18 @@ void garage_controller_refresh_protocol(void)
     s_target = SECPLUS1_TARGET_NONE;
     s_panel_start_ms = garage_uart_now_ms();
     s_panel_cand = false;
+    protocol_id_t new_proto = s_state.protocol;
     give_state();
+    // The wall bus is shared: point the UART at the new protocol. Secplus2
+    // activation also fires an immediate status query.
+    if (new_proto == PROTOCOL_SECPLUS2)
+    {
+        protocol_secplus2_activate();
+    }
+    else if (new_proto == PROTOCOL_SECPLUS1)
+    {
+        garage_uart_set_secplus1_mode();
+    }
 }
 
 // Single builder for every garage_status frame so single-user replies,
@@ -623,6 +635,11 @@ esp_err_t garage_controller_init(void)
     {
         return ret;
     }
+    ret = protocol_secplus2_init();
+    if (ret != ESP_OK)
+    {
+        return ret;
+    }
     return garage_uart_init();
 }
 
@@ -642,7 +659,12 @@ esp_err_t garage_controller_start(void)
         return ESP_ERR_NO_MEM;
     }
     ESP_LOGI(TAG, "Garage controller started");
-    return protocol_drycontact_start();
+    esp_err_t dret = protocol_drycontact_start();
+    if (dret != ESP_OK)
+    {
+        return dret;
+    }
+    return protocol_secplus2_start();
 }
 
 esp_err_t garage_controller_door_action(const char *action)
@@ -683,9 +705,57 @@ esp_err_t garage_controller_door_action(const char *action)
         broadcast_status();
         return ret;
     }
+    if (s_state.protocol == PROTOCOL_SECPLUS2)
+    {
+        // Explicit commands, no chained toggles: the opener takes
+        // open/close/stop directly. Skip when already there.
+        uint8_t nibble;
+        bool skip = false;
+        if (strcmp(action, "toggle") == 0)
+        {
+            nibble = SECPLUS2_DOOR_TOGGLE;
+        }
+        else if (strcmp(action, "open") == 0)
+        {
+            nibble = SECPLUS2_DOOR_OPEN;
+            skip = (s_state.door_state == SECPLUS1_DOOR_OPEN);
+        }
+        else if (strcmp(action, "close") == 0)
+        {
+            nibble = SECPLUS2_DOOR_CLOSE;
+            skip = (s_state.door_state == SECPLUS1_DOOR_CLOSED);
+        }
+        else if (strcmp(action, "stop") == 0)
+        {
+            nibble = SECPLUS2_DOOR_STOP;
+            skip = secplus1_door_state_is_settled(s_state.door_state);
+        }
+        else
+        {
+            give_state();
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (!skip)
+        {
+            // Delegate without holding the lock (two-phase press blocks).
+            give_state();
+            esp_err_t ret = protocol_secplus2_door(nibble);
+            take_state();
+            if (ret == ESP_OK)
+            {
+                s_state.door_moving = true;
+            }
+            give_state();
+            broadcast_status();
+            return ret;
+        }
+        give_state();
+        broadcast_status();
+        return ESP_OK;
+    }
     if (s_state.protocol != PROTOCOL_SECPLUS1)
     {
-        // No driver behind the active protocol yet (secplus2 stub).
+        // No driver behind the active protocol yet.
         give_state();
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -749,6 +819,38 @@ esp_err_t garage_controller_light_action(const char *action)
         give_state();
         return ESP_ERR_NOT_SUPPORTED;
     }
+    if (s_state.protocol == PROTOCOL_SECPLUS2)
+    {
+        uint8_t nibble;
+        bool skip = false;
+        if (strcmp(action, "toggle") == 0)
+        {
+            nibble = SECPLUS2_TOGGLE;
+        }
+        else if (strcmp(action, "on") == 0)
+        {
+            nibble = SECPLUS2_ON_LOCK;
+            skip = (s_state.light_state == GARAGE_LIGHT_ON);
+        }
+        else if (strcmp(action, "off") == 0)
+        {
+            nibble = SECPLUS2_OFF_UNLOCK;
+            skip = (s_state.light_state == GARAGE_LIGHT_OFF);
+        }
+        else
+        {
+            give_state();
+            return ESP_ERR_INVALID_ARG;
+        }
+        give_state();
+        esp_err_t ret = ESP_OK;
+        if (!skip)
+        {
+            ret = protocol_secplus2_light(nibble);
+        }
+        broadcast_status();
+        return ret;
+    }
     if (strcmp(action, "toggle") == 0 ||
         (strcmp(action, "on") == 0 && s_state.light_state != GARAGE_LIGHT_ON) ||
         (strcmp(action, "off") == 0 && s_state.light_state != GARAGE_LIGHT_OFF))
@@ -771,6 +873,38 @@ esp_err_t garage_controller_lock_action(const char *action)
     {
         give_state();
         return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (s_state.protocol == PROTOCOL_SECPLUS2)
+    {
+        uint8_t nibble;
+        bool skip = false;
+        if (strcmp(action, "toggle") == 0)
+        {
+            nibble = SECPLUS2_TOGGLE;
+        }
+        else if (strcmp(action, "lock") == 0)
+        {
+            nibble = SECPLUS2_ON_LOCK;
+            skip = (s_state.lock_state == GARAGE_LOCK_LOCKED);
+        }
+        else if (strcmp(action, "unlock") == 0)
+        {
+            nibble = SECPLUS2_OFF_UNLOCK;
+            skip = (s_state.lock_state == GARAGE_LOCK_UNLOCKED);
+        }
+        else
+        {
+            give_state();
+            return ESP_ERR_INVALID_ARG;
+        }
+        give_state();
+        esp_err_t ret = ESP_OK;
+        if (!skip)
+        {
+            ret = protocol_secplus2_lock(nibble);
+        }
+        broadcast_status();
+        return ret;
     }
     if (strcmp(action, "toggle") == 0 ||
         (strcmp(action, "lock") == 0 && s_state.lock_state != GARAGE_LOCK_LOCKED) ||
@@ -816,16 +950,69 @@ void garage_controller_report_sensors(bool open_hit, bool close_hit, bool valid)
     give_state();
 }
 
+void garage_controller_report_secplus2_status(const secplus2_status_t *st)
+{
+    if (!st)
+    {
+        return;
+    }
+    take_state();
+    if (s_state.protocol != PROTOCOL_SECPLUS2)
+    {
+        give_state();
+        return;
+    }
+    if (s_state.door_state != st->door)
+    {
+        ESP_LOGI(TAG, "Door state: %s", secplus1_door_state_str(st->door));
+    }
+    s_state.door_state = st->door;
+    if (secplus1_door_state_is_settled(st->door))
+    {
+        s_state.door_moving = false;
+    }
+    garage_light_state_t light =
+        st->light ? GARAGE_LIGHT_ON : GARAGE_LIGHT_OFF;
+    garage_lock_state_t lock =
+        st->lock ? GARAGE_LOCK_LOCKED : GARAGE_LOCK_UNLOCKED;
+    s_state.light_state = light;
+    s_state.lock_state = lock;
+    if (st->obstruction != s_state.obstruction)
+    {
+        ESP_LOGW(TAG, "Obstruction: %s", st->obstruction ? "yes" : "no");
+    }
+    s_state.obstruction = st->obstruction;
+    s_state.last_status_ms = garage_uart_now_ms();
+    give_state();
+}
+
+void garage_controller_report_motion(void)
+{
+    take_state();
+    if (s_state.protocol == PROTOCOL_SECPLUS2 && s_state.caps.motion)
+    {
+        s_state.motion = true;
+    }
+    give_state();
+}
+
 esp_err_t garage_controller_sync(void)
 {
     take_state();
     bool is_dry = s_state.protocol == PROTOCOL_DRYCONTACT;
+    bool is_sp2 = s_state.protocol == PROTOCOL_SECPLUS2;
     give_state();
     if (is_dry)
     {
         // No bus to query: re-sample the reeds and let the fingerprint push
         // a frame if anything changed.
         protocol_drycontact_resync();
+        broadcast_status();
+        return ESP_OK;
+    }
+    if (is_sp2)
+    {
+        protocol_secplus2_resync();
         broadcast_status();
         return ESP_OK;
     }

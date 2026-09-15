@@ -31,8 +31,7 @@
     {
       id: 'secplus2',
       label: 'Security+ 2.0',
-      desc: 'Yellow learn-button openers. Coming soon.',
-      disabled: true,
+      desc: 'Yellow learn-button openers. Wall-bus control, no panel detection. Experimental: not yet validated on real hardware.',
     },
   ]
 

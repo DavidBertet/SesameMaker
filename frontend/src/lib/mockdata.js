@@ -80,7 +80,7 @@ function protocolMessage() {
   return {
     type: 'protocol',
     id: garage.protocol,
-    supported: garage.protocol !== 'secplus2',
+    supported: true,
     caps: { ...garage.caps },
     dry: { ...dryCfg },
   }
@@ -101,6 +101,15 @@ const SECPLUS1_CAPS = {
   obstruction: true,
   motion: true,
   panel: true,
+  sensors: false,
+}
+
+const SECPLUS2_CAPS = {
+  light: true,
+  lock: true,
+  obstruction: true,
+  motion: true,
+  panel: false,
   sensors: false,
 }
 
@@ -240,6 +249,13 @@ export function generateMockResponse(data) {
         garage.light = 'off'
         garage.locked = 'unlocked'
         garage.panel = 'detected'
+        garage.sensors = { open: false, close: false, valid: false }
+      } else if (id === 'secplus2') {
+        garage.protocol = 'secplus2'
+        garage.caps = { ...SECPLUS2_CAPS }
+        garage.light = 'off'
+        garage.locked = 'unlocked'
+        garage.panel = 'none'
         garage.sensors = { open: false, close: false, valid: false }
       } else {
         return [{ type: 'error', message: 'Protocol not supported yet' }]

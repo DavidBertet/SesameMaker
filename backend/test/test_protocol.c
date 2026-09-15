@@ -27,10 +27,10 @@ static void test_id_strings(void)
 static void test_supported(void)
 {
     tests_run++;
-    // secplus2 is a stub: known id, no driver yet.
+    // All three known ids have drivers behind them.
     assert(protocol_id_supported(PROTOCOL_SECPLUS1));
     assert(protocol_id_supported(PROTOCOL_DRYCONTACT));
-    assert(!protocol_id_supported(PROTOCOL_SECPLUS2));
+    assert(protocol_id_supported(PROTOCOL_SECPLUS2));
 }
 
 static void test_caps_secplus1_full(void)
@@ -51,6 +51,16 @@ static void test_caps_drycontact_minimal(void)
     assert(c.sensors);
 }
 
+static void test_caps_secplus2_no_panel(void)
+{
+    tests_run++;
+    // Same bus feedback as secplus1, except wall-panel detection: on a
+    // secplus2 bus we are a wall device, there is nothing to detect.
+    protocol_caps_t c = protocol_caps_for(PROTOCOL_SECPLUS2);
+    assert(c.light && c.lock && c.obstruction && c.motion);
+    assert(!c.panel && !c.sensors);
+}
+
 static void test_caps_json(void)
 {
     tests_run++;
@@ -67,6 +77,7 @@ int main(void)
     test_supported();
     test_caps_secplus1_full();
     test_caps_drycontact_minimal();
+    test_caps_secplus2_no_panel();
     test_caps_json();
     printf("test_protocol: %d passed\n", tests_run);
     return 0;

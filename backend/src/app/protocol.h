@@ -1,7 +1,7 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 //
 // Protocol abstraction: every opener type (Security+ 1.0, dry-contact relay,
-// future Security+ 2.0) is identified by a protocol_id_t and described by a
+// Security+ 2.0) is identified by a protocol_id_t and described by a
 // capability set. The UI adapts from caps alone and never branches on the id.
 //
 // This header is pure logic (no ESP-IDF includes) so it is unit tested on the
@@ -78,10 +78,11 @@ static inline bool protocol_id_valid(int v)
     return v >= 0 && v < PROTOCOL_COUNT;
 }
 
-// True once a driver exists behind the id (secplus2 stub excluded).
+// True once a driver exists behind the id.
 static inline bool protocol_id_supported(protocol_id_t id)
 {
-    return id == PROTOCOL_SECPLUS1 || id == PROTOCOL_DRYCONTACT;
+    return id == PROTOCOL_SECPLUS1 || id == PROTOCOL_DRYCONTACT ||
+           id == PROTOCOL_SECPLUS2;
 }
 
 static inline protocol_caps_t protocol_caps_for(protocol_id_t id)
@@ -91,12 +92,21 @@ static inline protocol_caps_t protocol_caps_for(protocol_id_t id)
     switch (id)
     {
     case PROTOCOL_SECPLUS1:
-    case PROTOCOL_SECPLUS2:
         c.light = true;
         c.obstruction = true;
         c.motion = true;
         c.lock = true;
         c.panel = true;
+        c.sensors = false;
+        break;
+    case PROTOCOL_SECPLUS2:
+        // Same bus feedback as secplus1, except wall-panel detection: on a
+        // secplus2 bus we ARE a wall device, there is nothing to detect.
+        c.light = true;
+        c.obstruction = true;
+        c.motion = true;
+        c.lock = true;
+        c.panel = false;
         c.sensors = false;
         break;
     case PROTOCOL_DRYCONTACT:
