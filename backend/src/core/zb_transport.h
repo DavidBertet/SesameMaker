@@ -130,6 +130,10 @@ extern "C"
   // unjoined or when one is already in flight.
   void zb_transport_poll_lqi(void);
 
+  // Our current NWK short address (e.g. 0x0938), 0xFFFF while unknown.
+  // Cached in ZB context on join/leave/poll; safe from any task.
+  uint16_t zb_transport_short_address(void);
+
 #ifdef __cplusplus
 }
 #endif

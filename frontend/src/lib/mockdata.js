@@ -401,6 +401,7 @@ let zigbee = {
   channel: 0,
   channel_cfg: 0,
   pan_id: 0,
+  short_addr: 0xffff,
   pairing_remaining_s: 0,
   lqi: 0,
   lqi_valid: false,
@@ -483,6 +484,10 @@ let systemInfo = {
     internal_usage: '35%',
   },
   psram: { psram_total: '0 bytes', psram_free: '0 bytes', psram_usage: '0%' },
+  network: {
+    wifi_mac: '08:3A:F2:A1:B2:C3',
+    zigbee_ieee: '84:FD:27:FF:FE:12:34:56',
+  },
   spiffs: {
     status: 'Mounted and operational',
     partition_size: '960.0 KB',

@@ -221,6 +221,7 @@ esp_err_t zigbee_get_state(zigbee_state_t *out)
   out->commissioned = s_commissioned;
   out->channel = s_channel;
   out->pan_id = s_pan_id;
+  out->short_addr = zb_transport_short_address();
   out->channel_cfg = s_channel_cfg;
   out->lqi = s_lqi;
   out->lqi_valid = s_lqi_valid;

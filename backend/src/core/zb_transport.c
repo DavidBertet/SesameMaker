@@ -57,6 +57,12 @@ static const char *TAG = "ZB_STACK";
 // 802.15.4 TX power in dBm (C6 range -15..+20). Max: the garage is often far
 // from the coordinator/routers and this is a mains-powered device.
 #define ZB_TX_POWER_DBM 20
+// Minimum beacon LQI a join candidate must have (stack default 75,
+// reverse-engineered from the 2.0.4 blob; our join-selection disassembly
+// shows candidates below it are skipped -> NO_NETWORK). Lowered so a far
+// but reachable parent (e.g. Hue bulb on the same Z2M network) stays a
+// candidate. Gates discovery only, never post-association progress.
+#define ZB_MIN_JOIN_LQI 1
 // Max time to let Wi-Fi associate before starting the 802.15.4 radio.
 // Applies only when STA credentials exist; pure-AP boots skip the wait.
 // Polls is_wifi_connected(); starts early on GOT_IP, starts anyway at the
@@ -72,6 +78,15 @@ static bool s_started = false;
 // Written by the ZB task, read by WS/button tasks: mark volatile so the
 // compiler never caches the value across task boundaries.
 static volatile bool s_ready = false; // esp_zigbee_start() done, timer callbacks safe
+// Our NWK short, cached in ZB context (signal/alarm callbacks) so WS
+// tasks can read it without taking the ZB lock. 0xFFFF = unknown.
+static volatile uint16_t s_short_addr = 0xFFFF;
+
+// ZB context only: refresh the cached short from the stack.
+static void cache_short(void)
+{
+  s_short_addr = ezb_nwk_get_short_address();
+}
 
 // Configured scan channel (0 = auto/all, 11..26 = pinned). Set by
 // zigbee.c before the stack task runs; read inside zb_task, so no
@@ -222,6 +237,7 @@ static void lqi_alarm_cb(uint32_t arg)
       .cb = lqi_rsp_cb,
       .user_ctx = NULL,
   };
+  s_short_addr = req.dst_nwk_addr;
   if (ezb_zdo_nwk_mgmt_lqi_req(&req) != EZB_ERR_NONE)
   {
     s_lqi_polling = false;
@@ -287,6 +303,7 @@ static void leave_alarm_cb(uint32_t arg)
 {
   (void)arg;
   ESP_LOGI(TAG, "Local leave");
+  s_short_addr = 0xFFFF;
   ezb_bdb_reset_via_local_action();
 }
 
@@ -294,6 +311,7 @@ static void reset_alarm_cb(uint32_t arg)
 {
   (void)arg;
   ESP_LOGI(TAG, "Factory reset");
+  s_short_addr = 0xFFFF;
   esp_zigbee_factory_reset();
 }
 
@@ -440,6 +458,7 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
     else
     {
       s_reboot_attempts = 0;
+      cache_short();
       ESP_LOGI(TAG, "Rejoined (ch %d, pan 0x%04x)", ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
       if (s_app_bound && s_app.on_joined)
         s_app.on_joined(ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
@@ -452,6 +471,7 @@ static bool ezb_signal_handler(const ezb_app_signal_t *s)
     ezb_bdb_comm_status_t st = *(ezb_bdb_comm_status_t *)ezb_app_signal_get_params(s);
     if (st == EZB_BDB_STATUS_SUCCESS)
     {
+      cache_short();
       ESP_LOGI(TAG, "Joined (ch %d, pan 0x%04x): keep powered ~10s so NVRAM commits",
                ezb_nwk_get_current_channel(), ezb_nwk_get_panid());
       if (s_app_bound && s_app.on_joined)
@@ -584,7 +604,7 @@ static void zb_task(void *arg)
           },
       },
       .platform_config = {
-          // ZBOSS persistence lives in its own dedicated flash partition
+          // esp-zigbee core persistence lives in its own dedicated flash partition
           // (zb_storage, 16 KB) so the network/security dataset never shares
           // NVS pages with Wi-Fi or the app blob. A full shared NVS would
           // wedge both radios' storage together and can fail to commit on
@@ -606,6 +626,9 @@ static void zb_task(void *arg)
     ezb_get_tx_power(&applied);
     ESP_LOGI(TAG, "tx_power: requested=%d applied=%d dBm", ZB_TX_POWER_DBM, applied);
   }
+  ezb_nwk_set_min_join_lqi(ZB_MIN_JOIN_LQI);
+  ESP_LOGI(TAG, "min_join_lqi: requested=%u applied=%u",
+           (unsigned)ZB_MIN_JOIN_LQI, (unsigned)ezb_nwk_get_min_join_lqi());
   ezb_bdb_set_scan_duration(zigbee_channel_scan_duration(s_scan_channel));
   ESP_LOGI(TAG, "scan_duration: %u", (unsigned)ezb_bdb_get_scan_duration());
   // Restrict BDB scanning to the configured channel when one is pinned:
@@ -647,6 +670,12 @@ void zb_transport_start(void)
     return;
   s_started = true;
   xTaskCreate(zb_task, "zb_main", ZB_TASK_STACK, NULL, ZB_TASK_PRIO, NULL);
+}
+
+// Our NWK short address, cached in ZB context (see s_short_addr).
+uint16_t zb_transport_short_address(void)
+{
+  return s_short_addr;
 }
 
 // Re-apply the BDB scan channel mask + duration from ZB context (BDB reads
@@ -792,5 +821,6 @@ void zb_transport_report_onoff(uint8_t ep, bool on)
   (void)on;
 }
 void zb_transport_poll_lqi(void) {}
+uint16_t zb_transport_short_address(void) { return 0xFFFF; }
 
 #endif

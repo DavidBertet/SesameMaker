@@ -413,7 +413,7 @@
               {#if zigbeeState.config.joined}
                 Joined ch {zigbeeState.config.channel} · PAN {formatPanId(
                   zigbeeState.config.pan_id,
-                )}
+                )} · short {formatPanId(zigbeeState.config.short_addr)}
                 {#if zigbeeState.config.lqi_valid}
                   · Link {zigbeeState.config.lqi} ({zigbeeLqiLabel(zigbeeState.config.lqi)})
                   {zigbeeParentLabel(zigbeeState.config)}

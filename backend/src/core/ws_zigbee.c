@@ -34,12 +34,12 @@ static bool format_state(char *json, size_t len)
     snprintf(json, len,
              "{\"type\":\"zigbee_config\",\"supported\":%s,"
              "\"enabled\":%s,\"joined\":%s,\"commissioned\":%s,"
-             "\"channel\":%u,\"channel_cfg\":%u,\"pan_id\":%u,\"pairing_remaining_s\":%lu,"
+             "\"channel\":%u,\"channel_cfg\":%u,\"pan_id\":%u,\"short_addr\":%u,\"pairing_remaining_s\":%lu,"
              "\"lqi\":%u,\"lqi_valid\":%s,"
              "\"parent_addr\":%u,\"parent_depth\":%u}",
              supported, st.enabled ? "true" : "false",
              st.joined ? "true" : "false", st.commissioned ? "true" : "false",
-             st.channel, st.channel_cfg, st.pan_id,
+             st.channel, st.channel_cfg, st.pan_id, st.short_addr,
              (unsigned long)st.pairing_remaining_s,
              st.lqi, st.lqi_valid ? "true" : "false",
              st.parent_addr, st.parent_depth);
@@ -51,7 +51,7 @@ static void send_state(int sockfd)
     // Kick a fresh parent-link reading on every read: the reply carries
     // last-known values immediately, the poll result follows by broadcast.
     zb_transport_poll_lqi();
-    char json[320];
+    char json[352];
     if (!format_state(json, sizeof(json)))
     {
         send_error("Failed to read Zigbee state");
@@ -62,7 +62,7 @@ static void send_state(int sockfd)
 
 void broadcast_zigbee_config(void)
 {
-    char json[320];
+    char json[352];
     if (!format_state(json, sizeof(json)))
     {
         return;

@@ -11,6 +11,7 @@ export const zigbeeState = $state({
     channel: 0,
     channel_cfg: 0,
     pan_id: 0,
+    short_addr: 0xffff,
     pairing_remaining_s: 0,
     lqi: 0,
     lqi_valid: false,
@@ -28,6 +29,7 @@ function applyConfig(data) {
   if (typeof data.channel === 'number') c.channel = data.channel
   if (typeof data.channel_cfg === 'number') c.channel_cfg = data.channel_cfg
   if (typeof data.pan_id === 'number') c.pan_id = data.pan_id
+  if (typeof data.short_addr === 'number') c.short_addr = data.short_addr
   if (typeof data.pairing_remaining_s === 'number') c.pairing_remaining_s = data.pairing_remaining_s
   if (typeof data.lqi === 'number') c.lqi = data.lqi
   if (typeof data.lqi_valid === 'boolean') c.lqi_valid = data.lqi_valid

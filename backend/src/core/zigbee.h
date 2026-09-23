@@ -28,6 +28,9 @@ typedef struct
   bool commissioned;
   uint16_t channel;
   uint16_t pan_id;
+  // Our NWK short address (reassigned per association, e.g. 0x0938);
+  // 0xFFFF while unknown/unjoined. Read-only for the UI.
+  uint16_t short_addr;
   // Configured scan channel: 0 = auto (all 16), 11..26 = pinned. read-only
   // for the UI, settable via set_zigbee_config.
   uint8_t channel_cfg;
