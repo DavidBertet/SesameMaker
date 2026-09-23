@@ -15,6 +15,7 @@
 #include "esp_flash.h"
 #include "esp_chip_info.h"
 #include "esp_cpu.h"
+#include "esp_mac.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
@@ -31,11 +32,12 @@
 
 #include "wifi.h"
 #include "constants.h"
+#include "zigbee_ieee.h"
 
 const char *TAG = "WS_SETTINGS";
 
-static char json[2176];
-static char system_info[2048];
+static char json[2432];
+static char system_info[2304];
 
 // Product feature flags (see ws_settings_register_features).
 static const char *s_feature_pairs = "";
@@ -404,6 +406,21 @@ void get_system_info(char *buffer, size_t buffer_size)
     char spiffs_info[512];
     get_spiffs_info(spiffs_info, sizeof(spiffs_info));
 
+    // Identity addresses for sniffer correlation: WiFi STA MAC (48-bit)
+    // + 802.15.4 EUI-64 (= Zigbee IEEE long address, factory value).
+    // esp_read_mac works without the drivers started, so this is valid
+    // even while unjoined. Host-formatted via zigbee_ieee.h (unit tested).
+    char wifi_mac_str[18] = "n/a";
+    char zigbee_eui_str[24] = "n/a";
+    uint8_t mac48[6];
+    if (esp_read_mac(mac48, ESP_MAC_WIFI_STA) == ESP_OK)
+        zigbee_format_mac48(mac48, wifi_mac_str);
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    uint8_t eui64[8];
+    if (esp_read_mac(eui64, ESP_MAC_IEEE802154) == ESP_OK)
+        zigbee_format_eui64(eui64, zigbee_eui_str);
+#endif
+
     // Build the JSON response with grouped sections
     snprintf(buffer, buffer_size,
              "\"device\": {"
@@ -433,12 +450,16 @@ void get_system_info(char *buffer, size_t buffer_size)
              "\"internal_free\": \"%s\","
              "\"internal_usage\": \"%d%%\""
              "},"
-             "\"psram\": {"
-             "\"psram_total\": \"%s\","
-             "\"psram_free\": \"%s\","
-             "\"psram_usage\": \"%d%%\""
-             "},"
-             "%s",
+              "\"psram\": {"
+              "\"psram_total\": \"%s\","
+              "\"psram_free\": \"%s\","
+              "\"psram_usage\": \"%d%%\""
+              "},"
+              "\"network\": {"
+              "\"wifi_mac\": \"%s\","
+              "\"zigbee_ieee\": \"%s\""
+              "},"
+              "%s",
              // Device section
              reset_reason_str,
              uptime_str,
@@ -469,11 +490,14 @@ void get_system_info(char *buffer, size_t buffer_size)
              internal_total_str,
              internal_free_str,
              internal_usage_percent,
-             psram_total_str,
-             psram_free_str,
-             psram_usage_percent,
-             // Storage section
-             spiffs_info);
+              psram_total_str,
+              psram_free_str,
+              psram_usage_percent,
+              // Network section (sniffer correlation)
+              wifi_mac_str,
+              zigbee_eui_str,
+              // Storage section
+              spiffs_info);
 }
 
 // Main WebSocket handler function

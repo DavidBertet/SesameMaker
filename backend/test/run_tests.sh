@@ -36,3 +36,6 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_channel_config \
 cc -std=c11 -Wall -Wextra -o /tmp/test_zb_attr \
     test_zb_attr.c
 /tmp/test_zb_attr
+cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_ieee \
+    test_zigbee_ieee.c
+/tmp/test_zigbee_ieee
