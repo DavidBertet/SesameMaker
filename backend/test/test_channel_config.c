@@ -38,10 +38,10 @@ static void test_single_channel_mask(void)
     assert(zigbee_channel_mask(11) == 0x00000800u);
     assert(zigbee_channel_mask(26) == 0x04000000u);
     assert(zigbee_channel_mask(20) == (1u << 20));
-    // Pinned channel = longer dwell per channel.
+    // Pinned channel = short dwell for fast retries.
     assert(zigbee_channel_scan_duration(11) == ZB_SCAN_DURATION_FIXED);
     assert(zigbee_channel_scan_duration(26) == ZB_SCAN_DURATION_FIXED);
-    assert(zigbee_channel_scan_duration(20) == 6);
+    assert(zigbee_channel_scan_duration(20) == 3);
 }
 
 static void test_invalid_falls_back_to_auto(void)

@@ -6,10 +6,10 @@
 // channel_cfg semantics (0 = auto):
 //   - 0        -> scan all 16 channels (11..26), low scan duration (fast on
 //                 a healthy link; the wider mask is the tradeoff)
-//   - 11..26   -> pin BDB scanning to that single channel, higher scan
-//                 duration (dwells longer per channel to catch a marginal
-//                 beacon-response window). Choses the value that breaks the
-//                 "must hold the device next to the router" failure mode.
+//   - 11..26   -> pin BDB scanning to that single channel, short dwell for
+//                 fast attempts (was 6 for marginal-beacon catch; lowered to
+//                 3 so first-join retries cycle quickly on a known channel).
+//                 If beacons get missed on a very weak link, raise it again.
 
 #pragma once
 
@@ -27,8 +27,8 @@ extern "C"
 #define ZB_CHANNEL_MASK_SINGLE(ch) (1u << (ch))
 // Lower energy-scan duration used while sweeping all channels.
 #define ZB_SCAN_DURATION_AUTO 4
-// Dwell used when pinned to one channel (longer to catch weak beacons).
-#define ZB_SCAN_DURATION_FIXED 6
+// Dwell used when pinned to one channel (short: fast first-join retries).
+#define ZB_SCAN_DURATION_FIXED 3
 
 // Valid channels: 0 (auto) or 11..26.
 #define ZB_CHANNEL_CFG_MIN 11
