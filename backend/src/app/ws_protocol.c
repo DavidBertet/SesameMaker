@@ -7,6 +7,7 @@
 #include "ws_protocol.h"
 
 #include "garage_controller.h"
+#include "homekit.h"
 #include "protocol_drycontact.h"
 #include "protocol_registry.h"
 #include "websocket.h"
@@ -158,14 +159,23 @@ void ws_handle_set_protocol(const cJSON *root, int sockfd)
     broadcast_message(status);
     if (id != prev_id)
     {
-        // Endpoints follow protocol caps: a configured network no longer
-        // matches, so leave it and reboot to rebuild from the new caps.
+        // Endpoints + accessory follow protocol caps: a configured network
+        // or a running accessory no longer matches, so leave and reboot to
+        // rebuild from the new caps.
+        bool rebuild = false;
         zigbee_state_t zs;
         if (zigbee_get_state(&zs) == ESP_OK && (zs.joined || zs.commissioned))
         {
-            ESP_LOGW(TAG, "Protocol switched while configured: leaving Zigbee + rebooting");
+            ESP_LOGW(TAG, "Protocol switched while configured: leaving Zigbee");
             zigbee_leave();
-            schedule_reboot(800);
+            rebuild = true;
         }
+        if (homekit_enabled())
+        {
+            ESP_LOGW(TAG, "Protocol switched while HomeKit running: rebooting to rebuild accessory");
+            rebuild = true;
+        }
+        if (rebuild)
+            schedule_reboot(800);
     }
 }

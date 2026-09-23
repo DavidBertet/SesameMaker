@@ -7,6 +7,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { protocolState, dryCfg, saveProtocol } from 'src/app/lib/door.svelte.js'
   import { zigbeeState, initializeZigbee } from 'src/core/lib/zigbee.svelte.js'
+  import { homekitState, initializeHomekit } from 'src/core/lib/homekit.svelte.js'
   import { onMessageType } from 'src/core/lib/ws.svelte.js'
   import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import * as Card from '$lib/components/ui/card'
@@ -74,6 +75,7 @@
   onMount(() => {
     syncForm()
     const unsubZigbee = initializeZigbee()
+    const unsubHk = initializeHomekit()
     // NOTE: read the message payload directly, not the stores. This listener
     // is registered before initializeGarage's (child onMount fires first),
     // so the stores still hold the previous protocol when this runs.
@@ -88,11 +90,13 @@
     return () => {
       if (unsub) unsub()
       if (unsubZigbee) unsubZigbee()
+      if (unsubHk) unsubHk()
     }
   })
 
   onDestroy(() => {
     if (unsub) unsub()
+    if (unsubHk) unsubHk()
   })
 </script>
 
@@ -201,7 +205,14 @@
       {#if (zigbeeState.config.joined || zigbeeState.config.commissioned) && form.id !== protocolState.id}
         <p class="text-xs text-amber-500 leading-snug">
           Zigbee is configured — saving a different protocol disconnects it and reboots. Re-pair
-          afterwards.
+          afterwards (re-interview in Zigbee2MQTT).
+        </p>
+      {/if}
+
+      {#if homekitState.config.enabled && form.id !== protocolState.id}
+        <p class="text-xs text-amber-500 leading-snug">
+          HomeKit accessory rebuilds on save and reboot — remove + re-add it in the Home app
+          afterwards or stale tiles remain.
         </p>
       {/if}
 

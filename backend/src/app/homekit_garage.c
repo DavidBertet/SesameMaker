@@ -5,8 +5,10 @@
 #include "homekit_garage.h"
 
 #include "homekit.h"
+#include "homekit_services.h"
 
 #include "garage_controller.h"
+#include "protocol_registry.h"
 
 #include "hap.h"
 #include "hap_apple_chars.h"
@@ -166,33 +168,49 @@ static void build_accessory(void)
 
   hap_serv_t *door = hap_serv_garage_door_opener_create(HK_DOOR_CLOSED,
                                                         HK_DOOR_CLOSED, false);
-  hap_serv_t *light = hap_serv_lightbulb_create(false);
-  hap_serv_t *lock = hap_serv_lock_mechanism_create(HK_LOCK_UNSECURED,
-                                                    HK_LOCK_UNSECURED);
-  hap_serv_t *motion = hap_serv_motion_sensor_create(false);
-  if (!door || !light || !lock || !motion)
+  if (!door)
+  {
+    ESP_LOGE(TAG, "door service create failed");
+    return;
+  }
+  // Optional services follow the active protocol's caps (dry-contact has
+  // neither light nor lock nor motion); skipped handles stay NULL and the
+  // NULL-safe pushers simply never report them. Door always exists.
+  homekit_services_t svc = homekit_services_for_caps(protocol_registry_caps());
+  hap_serv_t *light = svc.light ? hap_serv_lightbulb_create(false) : NULL;
+  hap_serv_t *lock = svc.lock ? hap_serv_lock_mechanism_create(HK_LOCK_UNSECURED,
+                                                               HK_LOCK_UNSECURED)
+                              : NULL;
+  hap_serv_t *motion = svc.motion ? hap_serv_motion_sensor_create(false) : NULL;
+  if ((svc.light && !light) || (svc.lock && !lock) || (svc.motion && !motion))
   {
     ESP_LOGE(TAG, "service create failed");
     return;
   }
   hap_serv_set_write_cb(door, door_write);
-  hap_serv_set_write_cb(light, light_write);
-  hap_serv_set_write_cb(lock, lock_write);
+  if (light)
+    hap_serv_set_write_cb(light, light_write);
+  if (lock)
+    hap_serv_set_write_cb(lock, lock_write);
   hap_acc_add_serv(acc, door);
-  hap_acc_add_serv(acc, light);
-  hap_acc_add_serv(acc, lock);
-  hap_acc_add_serv(acc, motion);
+  if (light)
+    hap_acc_add_serv(acc, light);
+  if (lock)
+    hap_acc_add_serv(acc, lock);
+  if (motion)
+    hap_acc_add_serv(acc, motion);
 
   s_door_current = hap_serv_get_char_by_uuid(door, HAP_CHAR_UUID_CURRENT_DOOR_STATE);
   s_door_target = hap_serv_get_char_by_uuid(door, HAP_CHAR_UUID_TARGET_DOOR_STATE);
   s_obstruction = hap_serv_get_char_by_uuid(door, HAP_CHAR_UUID_OBSTRUCTION_DETECTED);
-  s_light_on = hap_serv_get_char_by_uuid(light, HAP_CHAR_UUID_ON);
-  s_lock_current = hap_serv_get_char_by_uuid(lock, HAP_CHAR_UUID_LOCK_CURRENT_STATE);
-  s_lock_target = hap_serv_get_char_by_uuid(lock, HAP_CHAR_UUID_LOCK_TARGET_STATE);
-  s_motion = hap_serv_get_char_by_uuid(motion, HAP_CHAR_UUID_MOTION_DETECTED);
+  s_light_on = light ? hap_serv_get_char_by_uuid(light, HAP_CHAR_UUID_ON) : NULL;
+  s_lock_current = lock ? hap_serv_get_char_by_uuid(lock, HAP_CHAR_UUID_LOCK_CURRENT_STATE) : NULL;
+  s_lock_target = lock ? hap_serv_get_char_by_uuid(lock, HAP_CHAR_UUID_LOCK_TARGET_STATE) : NULL;
+  s_motion = motion ? hap_serv_get_char_by_uuid(motion, HAP_CHAR_UUID_MOTION_DETECTED) : NULL;
 
   hap_add_accessory(acc);
-  ESP_LOGI(TAG, "Accessory built");
+  ESP_LOGI(TAG, "Accessory built (light=%d lock=%d motion=%d)", (int)svc.light,
+           (int)svc.lock, (int)svc.motion);
 }
 
 // ---- outbound state ----
