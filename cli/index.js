@@ -80,9 +80,8 @@ function showCompletionMessage(args, results, otaPassword, discoveredDevices = [
     if (args.otaIP) {
       logger.success('🎉 OTA deployment completed successfully!')
       logger.info(
-        `Check your ESP32 at ${colors.yellow}http://${args.otaIP}${colors.reset} to verify the update.`,
+        `Check the web interface at ${colors.yellow}http://${args.otaIP}${colors.reset} to verify the update.`,
       )
-      logger.info("You can now access the web interface via the ESP32's IP address.")
     } else if (discoveredDevices.length === 1) {
       logger.success('🎉 Setup and deployment completed successfully!')
       logger.info('Your ESP32 parking assistant is now running.')
