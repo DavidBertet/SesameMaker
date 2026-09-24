@@ -9,7 +9,7 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_secplus1 \
 cc -std=c11 -Wall -Wextra -o /tmp/test_secplus2 \
     test_secplus2.c ../src/app/secplus2.c -lm
 /tmp/test_secplus2
-cc -std=c11 -Wall -Wextra -o /tmp/test_raw_json \
+cc -std=c11 -Wall -Wextra -I../src/core -o /tmp/test_raw_json \
     test_raw_json.c ../src/app/raw_json.c
 /tmp/test_raw_json
 cc -std=c11 -Wall -Wextra -o /tmp/test_protocol \
@@ -39,7 +39,7 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_zb_attr \
 cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_ieee \
     test_zigbee_ieee.c
 /tmp/test_zigbee_ieee
-cc -std=c11 -Wall -Wextra -o /tmp/test_pin_inspector \
+cc -std=c11 -Wall -Wextra -I../src/core -o /tmp/test_pin_inspector \
     test_pin_inspector.c ../src/core/inspector/pin_inspector.c
 /tmp/test_pin_inspector
 cc -std=c11 -Wall -Wextra -o /tmp/test_homekit_services \

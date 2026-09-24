@@ -2,8 +2,8 @@
 
 #include "pin_inspector.h"
 
-#include <stdarg.h>
-#include <stdio.h>
+#include "json_writer.h"
+
 #include <string.h>
 
 static pin_provider_fn s_provider;
@@ -65,36 +65,6 @@ bool pin_hit_of(int level, bool active_low)
 {
     bool high = level != 0;
     return active_low ? !high : high;
-}
-
-// Same sizing-writer idiom as raw_json.c: tracks the logical offset, never
-// writes past buf[size-1], writes nothing when buf is NULL (for sizing).
-typedef struct
-{
-    char *buf;
-    size_t size;
-    size_t off;
-} writer_t;
-
-static void w_out(writer_t *w, const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    int need = vsnprintf(NULL, 0, fmt, ap);
-    va_end(ap);
-    if (need < 0)
-    {
-        return;
-    }
-    if (!w->buf || w->off >= w->size)
-    {
-        w->off += (size_t)need;
-        return;
-    }
-    va_start(ap, fmt);
-    vsnprintf(w->buf + w->off, w->size - w->off, fmt, ap);
-    va_end(ap);
-    w->off += (size_t)need;
 }
 
 // ==== Pure bus-table helpers (used by the IDF capture session) ====
@@ -618,9 +588,9 @@ const char *bus_status_str(const bus_run_t *run, uint32_t stale_after_ms,
     return "stale";
 }
 
-static void emit_pin(writer_t *w, const pin_desc_t *d, const pin_sample_t *s)
+static void emit_pin(json_writer_t *w, const pin_desc_t *d, const pin_sample_t *s)
 {
-    w_out(w, "{\"gpio\":%d,\"name\":\"%s\",\"role\":\"%s\",\"type\":\"%s\","
+    json_w_out(w, "{\"gpio\":%d,\"name\":\"%s\",\"role\":\"%s\",\"type\":\"%s\","
              "\"mode\":\"%s\"",
           d->gpio, d->name, d->role ? d->role : "",
           pin_type_str(d->type), d->is_output ? "output" : "input");
@@ -628,72 +598,72 @@ static void emit_pin(writer_t *w, const pin_desc_t *d, const pin_sample_t *s)
     {
         if (s->has_analog)
         {
-            w_out(w, ",\"raw\":%d,\"mv\":%d", s->raw, s->mv);
+            json_w_out(w, ",\"raw\":%d,\"mv\":%d", s->raw, s->mv);
         }
     }
     else
     {
-        w_out(w, ",\"level\":%d", s->level ? 1 : 0);
+        json_w_out(w, ",\"level\":%d", s->level ? 1 : 0);
         if (d->type == PIN_TYPE_DIGITAL)
         {
             if (s->has_hit)
             {
-                w_out(w, ",\"hit\":%s", s->hit ? "true" : "false");
+                json_w_out(w, ",\"hit\":%s", s->hit ? "true" : "false");
             }
-            w_out(w, ",\"edges\":%lu", (unsigned long)s->edges);
+            json_w_out(w, ",\"edges\":%lu", (unsigned long)s->edges);
             if (s->has_activity)
             {
-                w_out(w, ",\"idle_ms\":%lu", (unsigned long)s->idle_ms);
+                json_w_out(w, ",\"idle_ms\":%lu", (unsigned long)s->idle_ms);
             }
         }
     }
     if (d->detail)
     {
-        w_out(w, ",\"detail\":\"%s\"", d->detail);
+        json_w_out(w, ",\"detail\":\"%s\"", d->detail);
     }
-    w_out(w, "}");
+    json_w_out(w, "}");
 }
 
-static void emit_bus(writer_t *w, const bus_desc_t *d, const bus_run_t *run,
+static void emit_bus(json_writer_t *w, const bus_desc_t *d, const bus_run_t *run,
                      uint32_t now_ms)
 {
     uint32_t stale = d->stale_after_ms ? d->stale_after_ms : BUS_STALE_DEFAULT_MS;
-    w_out(w, "{\"name\":\"%s\",\"type\":\"%s\",\"status\":\"%s\","
+    json_w_out(w, "{\"name\":\"%s\",\"type\":\"%s\",\"status\":\"%s\","
              "\"frames_ok\":%lu,\"frame_errors\":%lu",
           d->name, bus_type_str(d->type), bus_status_str(run, stale, now_ms),
           (unsigned long)run->frames_ok, (unsigned long)run->frame_errors);
     if (run->ever_ok)
     {
         int32_t idle = (int32_t)(now_ms - run->last_ok_ms);
-        w_out(w, ",\"idle_ms\":%lu", (unsigned long)(idle < 0 ? 0 : idle));
+        json_w_out(w, ",\"idle_ms\":%lu", (unsigned long)(idle < 0 ? 0 : idle));
     }
     if (run->frame_errors > 0)
     {
         int32_t idle = (int32_t)(now_ms - run->last_error_ms);
-        w_out(w, ",\"error_idle_ms\":%lu", (unsigned long)(idle < 0 ? 0 : idle));
+        json_w_out(w, ",\"error_idle_ms\":%lu", (unsigned long)(idle < 0 ? 0 : idle));
     }
     if (d->type == BUS_UART && run->parity_errors > 0)
     {
-        w_out(w, ",\"parity_errors\":%lu", (unsigned long)run->parity_errors);
+        json_w_out(w, ",\"parity_errors\":%lu", (unsigned long)run->parity_errors);
     }
     if (d->type == BUS_I2C)
     {
-        w_out(w, ",\"nacks\":%lu", (unsigned long)run->nacks);
-        w_out(w, ",\"addresses\":[");
+        json_w_out(w, ",\"nacks\":%lu", (unsigned long)run->nacks);
+        json_w_out(w, ",\"addresses\":[");
         for (uint8_t k = 0; k < run->n_addrs; k++)
         {
-            w_out(w, "%s{\"addr\":%u,\"reads\":%lu,\"writes\":%lu}",
+            json_w_out(w, "%s{\"addr\":%u,\"reads\":%lu,\"writes\":%lu}",
                   k ? "," : "", run->addrs[k].addr,
                   (unsigned long)run->addrs[k].reads,
                   (unsigned long)run->addrs[k].writes);
         }
-        w_out(w, "]");
+        json_w_out(w, "]");
     }
     if (d->detail)
     {
-        w_out(w, ",\"detail\":\"%s\"", d->detail);
+        json_w_out(w, ",\"detail\":\"%s\"", d->detail);
     }
-    w_out(w, "}");
+    json_w_out(w, "}");
 }
 
 size_t gpio_state_format(char *buf, size_t len,
@@ -701,8 +671,8 @@ size_t gpio_state_format(char *buf, size_t len,
                          size_t npins, const bus_desc_t *bdescs,
                          const bus_run_t *runs, size_t nbuses, uint32_t now_ms)
 {
-    writer_t w = {buf, len, 0};
-    w_out(&w, "{\"type\":\"gpio_state\",\"pins\":[");
+    json_writer_t w = {buf, len, 0};
+    json_w_out(&w, "{\"type\":\"gpio_state\",\"pins\":[");
     bool first = true;
     for (size_t i = 0; i < npins; i++)
     {
@@ -710,14 +680,14 @@ size_t gpio_state_format(char *buf, size_t len,
         {
             continue;
         }
-        w_out(&w, "%s", first ? "" : ",");
+        json_w_out(&w, "%s", first ? "" : ",");
         emit_pin(&w, &pdescs[i], &samples[i]);
         first = false;
     }
-    w_out(&w, "]");
+    json_w_out(&w, "]");
     if (bdescs && nbuses > 0)
     {
-        w_out(&w, ",\"buses\":[");
+        json_w_out(&w, ",\"buses\":[");
         first = true;
         for (size_t i = 0; i < nbuses; i++)
         {
@@ -725,12 +695,12 @@ size_t gpio_state_format(char *buf, size_t len,
             {
                 continue;
             }
-            w_out(&w, "%s", first ? "" : ",");
+            json_w_out(&w, "%s", first ? "" : ",");
             emit_bus(&w, &bdescs[i], &runs[i], now_ms);
             first = false;
         }
-        w_out(&w, "]");
+        json_w_out(&w, "]");
     }
-    w_out(&w, "}");
+    json_w_out(&w, "}");
     return w.off;
 }
