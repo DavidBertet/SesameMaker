@@ -3,6 +3,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import DataTable from 'src/core/components/common/DataTable.svelte'
   import { garageState, protocolState, dryCfg, initializeGarage } from 'src/app/lib/door.svelte.js'
   import {
     pinTypeLabel,
@@ -10,6 +11,7 @@
     pinMeaning,
     busStatusMeta,
     busMeaning,
+    doorSummary,
   } from 'src/app/lib/inspector.js'
   import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import * as Card from '$lib/components/ui/card'
@@ -64,25 +66,7 @@
     return pin.type !== 'analog' && !!pin.level
   }
 
-  const stateRows = $derived([
-    ['Protocol', protocolState.loaded ? protocolState.id : garageState.protocol],
-    ['Door', `${garageState.door}${garageState.moving ? ' (moving)' : ''}`],
-    ['Light', garageState.light],
-    ['Lock', garageState.locked],
-    ['Obstruction', garageState.obstruction ? 'obstructed' : 'clear'],
-    ['Motion', garageState.motion ? 'yes' : 'no'],
-    ['Panel', garageState.panel],
-    [
-      'Sensors',
-      garageState.sensors.valid
-        ? `open=${garageState.sensors.open ? 'hit' : 'clear'} close=${garageState.sensors.close ? 'hit' : 'clear'}`
-        : 'no sensors',
-    ],
-    [
-      'Dry config',
-      `relay=GPIO${dryCfg.relay_gpio} open=GPIO${dryCfg.open_gpio} close=GPIO${dryCfg.close_gpio} mode=${dryCfg.sensor_mode}`,
-    ],
-  ])
+  const stateRows = $derived(doorSummary(garageState, protocolState, dryCfg))
 </script>
 
 <SectionHeader
@@ -114,44 +98,34 @@
       </div>
     </Card.Header>
     <Card.Content>
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-muted-foreground">
-            <th class="p-2 font-medium">GPIO</th>
-            <th class="p-2 font-medium">Name</th>
-            <th class="p-2 font-medium">Role</th>
-            <th class="p-2 font-medium">Type</th>
-            <th class="p-2 font-medium">Mode</th>
-            <th class="p-2 font-medium">Level</th>
-            <th class="p-2 font-medium">Meaning</th>
+      <DataTable
+        headers={['GPIO', 'Name', 'Role', 'Type', 'Mode', 'Level', 'Meaning']}
+        rows={pins}
+        empty="No samples yet…"
+        rowKey={(pin) => pin.gpio}
+      >
+        {#snippet children(pin)}
+          <tr class="border-t">
+            <td class="p-2 font-mono">GPIO{pin.gpio}</td>
+            <td class="p-2 font-mono">{pin.name}</td>
+            <td class="p-2 text-muted-foreground">{pin.role}</td>
+            <td class="p-2">
+              <Badge variant="outline">{pinTypeLabel(pin.type)}</Badge>
+            </td>
+            <td class="p-2 text-muted-foreground">{pin.mode}</td>
+            <td class="p-2">
+              {#if pin.type === 'analog'}
+                <span class="text-muted-foreground">—</span>
+              {:else}
+                <Badge variant={isHigh(pin) ? 'default' : 'secondary'}>
+                  {pinLevelText(pin)}
+                </Badge>
+              {/if}
+            </td>
+            <td class="p-2 text-muted-foreground">{pinMeaning(pin)}</td>
           </tr>
-        </thead>
-        <tbody>
-          {#each pins as pin (pin.gpio)}
-            <tr class="border-t">
-              <td class="p-2 font-mono">GPIO{pin.gpio}</td>
-              <td class="p-2 font-mono">{pin.name}</td>
-              <td class="p-2 text-muted-foreground">{pin.role}</td>
-              <td class="p-2">
-                <Badge variant="outline">{pinTypeLabel(pin.type)}</Badge>
-              </td>
-              <td class="p-2 text-muted-foreground">{pin.mode}</td>
-              <td class="p-2">
-                {#if pin.type === 'analog'}
-                  <span class="text-muted-foreground">—</span>
-                {:else}
-                  <Badge variant={isHigh(pin) ? 'default' : 'secondary'}>
-                    {pinLevelText(pin)}
-                  </Badge>
-                {/if}
-              </td>
-              <td class="p-2 text-muted-foreground">{pinMeaning(pin)}</td>
-            </tr>
-          {:else}
-            <tr><td class="p-4 text-muted-foreground" colspan="7">No samples yet…</td></tr>
-          {/each}
-        </tbody>
-      </table>
+        {/snippet}
+      </DataTable>
     </Card.Content>
   </Card.Root>
 
@@ -163,37 +137,26 @@
       </Card.Description>
     </Card.Header>
     <Card.Content>
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-muted-foreground">
-            <th class="p-2 font-medium">Bus</th>
-            <th class="p-2 font-medium">Type</th>
-            <th class="p-2 font-medium">Status</th>
-            <th class="p-2 font-medium">Summary</th>
+      <DataTable
+        headers={['Bus', 'Type', 'Status', 'Summary']}
+        rows={buses}
+        empty="No capture running — monitoring starts while this tab is open…"
+        rowKey={(bus) => bus.name}
+      >
+        {#snippet children(bus)}
+          {@const meta = busStatusMeta(bus.status)}
+          <tr class="border-t">
+            <td class="p-2 font-mono">{bus.name}</td>
+            <td class="p-2">
+              <Badge variant="outline">{pinTypeLabel(bus.type)}</Badge>
+            </td>
+            <td class="p-2">
+              <Badge variant={meta.variant}>{meta.label}</Badge>
+            </td>
+            <td class="p-2 text-muted-foreground">{busMeaning(bus)}</td>
           </tr>
-        </thead>
-        <tbody>
-          {#each buses as bus (bus.name)}
-            {@const meta = busStatusMeta(bus.status)}
-            <tr class="border-t">
-              <td class="p-2 font-mono">{bus.name}</td>
-              <td class="p-2">
-                <Badge variant="outline">{pinTypeLabel(bus.type)}</Badge>
-              </td>
-              <td class="p-2">
-                <Badge variant={meta.variant}>{meta.label}</Badge>
-              </td>
-              <td class="p-2 text-muted-foreground">{busMeaning(bus)}</td>
-            </tr>
-          {:else}
-            <tr>
-              <td class="p-4 text-muted-foreground" colspan="4">
-                No capture running — monitoring starts while this tab is open…
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+        {/snippet}
+      </DataTable>
     </Card.Content>
   </Card.Root>
 
@@ -203,22 +166,14 @@
       <Card.Description>Live door/controller state from the ESP32.</Card.Description>
     </Card.Header>
     <Card.Content>
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-muted-foreground">
-            <th class="p-2 font-medium">Name</th>
-            <th class="p-2 font-medium">Value</th>
+      <DataTable headers={['Name', 'Value']} rows={stateRows} empty="No state yet…">
+        {#snippet children([name, value])}
+          <tr class="border-t">
+            <td class="p-2 text-muted-foreground">{name}</td>
+            <td class="p-2 font-mono">{value}</td>
           </tr>
-        </thead>
-        <tbody>
-          {#each stateRows as [name, value]}
-            <tr class="border-t">
-              <td class="p-2 text-muted-foreground">{name}</td>
-              <td class="p-2 font-mono">{value}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+        {/snippet}
+      </DataTable>
     </Card.Content>
   </Card.Root>
 </div>

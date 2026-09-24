@@ -1,7 +1,7 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
-import { pinTypeLabel, pinLevelText, pinMeaning, fmtAge } from './inspector.js'
+import { pinTypeLabel, pinLevelText, pinMeaning, fmtAge, doorSummary } from './inspector.js'
 
 import { busStatusMeta, formatI2cAddr, busMeaning } from './inspector.js'
 test('pinTypeLabel covers every inspector type', () => {
@@ -116,4 +116,56 @@ test('busMeaning breaks errors down by kind and age', () => {
     }),
     '22 frames, 44 errors (40 framing, 4 parity), last 0.1s ago (idle 0.1s)',
   )
+})
+
+test('doorSummary builds name/value rows from store lookalikes', () => {
+  const garage = {
+    protocol: 'dry',
+    door: 'closed',
+    moving: false,
+    light: 'off',
+    locked: false,
+    obstruction: false,
+    motion: true,
+    panel: 'idle',
+    sensors: { valid: true, open: false, close: true },
+  }
+  const rows = Object.fromEntries(
+    doorSummary(garage, { loaded: true, id: 'secplus1' }, {
+      relay_gpio: 4,
+      open_gpio: 5,
+      close_gpio: 6,
+      sensor_mode: 'both',
+    }),
+  )
+  assert.equal(rows.Protocol, 'secplus1')
+  assert.equal(rows.Door, 'closed')
+  assert.equal(rows.Obstruction, 'clear')
+  assert.equal(rows.Motion, 'yes')
+  assert.equal(rows.Sensors, 'open=clear close=hit')
+  assert.equal(rows['Dry config'], 'relay=GPIO4 open=GPIO5 close=GPIO6 mode=both')
+})
+
+test('doorSummary falls back when protocol unloaded and door moving', () => {
+  const rows = Object.fromEntries(
+    doorSummary(
+      {
+        protocol: 'secplus1',
+        door: 'unknown',
+        moving: true,
+        light: 'on',
+        locked: true,
+        obstruction: true,
+        motion: false,
+        panel: 'busy',
+        sensors: { valid: false },
+      },
+      { loaded: false },
+      { relay_gpio: 4, open_gpio: -1, close_gpio: 6, sensor_mode: 'close' },
+    ),
+  )
+  assert.equal(rows.Protocol, 'secplus1')
+  assert.equal(rows.Door, 'unknown (moving)')
+  assert.equal(rows.Obstruction, 'obstructed')
+  assert.equal(rows.Sensors, 'no sensors')
 })

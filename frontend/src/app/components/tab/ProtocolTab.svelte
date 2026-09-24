@@ -3,6 +3,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import DataTable from 'src/core/components/common/DataTable.svelte'
   import ProtocolSelector from 'src/app/components/common/ProtocolSelector.svelte'
   import {
     garageState,
@@ -184,32 +185,27 @@
             <Card.Description>Received (RX)</Card.Description>
           </Card.Header>
           <Card.Content>
-            <ScrollArea class="h-72 rounded-md border">
-              <table class="w-full text-sm">
-                <thead class="sticky top-0 bg-muted/95 backdrop-blur">
-                  <tr class="text-left">
-                    <th class="p-2 font-medium">t (ms)</th>
-                    <th class="p-2 font-medium">Byte</th>
-                    <th class="p-2 font-medium">Meaning</th>
+            <ScrollArea class="h-72">
+              <DataTable
+                headers={['t (ms)', 'Byte', 'Meaning']}
+                rows={rxRows}
+                empty="No traffic yet…"
+                sticky
+                muted={false}
+              >
+                {#snippet children(row)}
+                  <tr class="border-t">
+                    <td class="p-2 tabular-nums text-muted-foreground">{row.t}</td>
+                    <td class="p-2 font-mono">{row.hex}</td>
+                    <td class="p-2">
+                      {row.name}
+                      {#if row.detail}
+                        <span class="text-muted-foreground"> - {row.detail}</span>
+                      {/if}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {#each rxRows as row}
-                    <tr class="border-t">
-                      <td class="p-2 tabular-nums text-muted-foreground">{row.t}</td>
-                      <td class="p-2 font-mono">{row.hex}</td>
-                      <td class="p-2">
-                        {row.name}
-                        {#if row.detail}
-                          <span class="text-muted-foreground"> - {row.detail}</span>
-                        {/if}
-                      </td>
-                    </tr>
-                  {:else}
-                    <tr><td class="p-4 text-muted-foreground" colspan="3">No traffic yet…</td></tr>
-                  {/each}
-                </tbody>
-              </table>
+                {/snippet}
+              </DataTable>
             </ScrollArea>
           </Card.Content>
         </Card.Root>
@@ -219,29 +215,22 @@
             <Card.Description>Transmitted (TX)</Card.Description>
           </Card.Header>
           <Card.Content>
-            <ScrollArea class="h-72 rounded-md border">
-              <table class="w-full text-sm">
-                <thead class="sticky top-0 bg-muted/95 backdrop-blur">
-                  <tr class="text-left">
-                    <th class="p-2 font-medium">t (ms)</th>
-                    <th class="p-2 font-medium">Byte</th>
-                    <th class="p-2 font-medium">Meaning</th>
+            <ScrollArea class="h-72">
+              <DataTable
+                headers={['t (ms)', 'Byte', 'Meaning']}
+                rows={txRows}
+                empty="Nothing sent yet…"
+                sticky
+                muted={false}
+              >
+                {#snippet children(row)}
+                  <tr class="border-t">
+                    <td class="p-2 tabular-nums text-muted-foreground">{row.t}</td>
+                    <td class="p-2 font-mono">{row.hex}</td>
+                    <td class="p-2">{row.name}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {#each txRows as row}
-                    <tr class="border-t">
-                      <td class="p-2 tabular-nums text-muted-foreground">{row.t}</td>
-                      <td class="p-2 font-mono">{row.hex}</td>
-                      <td class="p-2">{row.name}</td>
-                    </tr>
-                  {/each}
-                  {#if txRows.length === 0}
-                    <tr><td class="p-4 text-muted-foreground" colspan="3">Nothing sent yet…</td></tr
-                    >
-                  {/if}
-                </tbody>
-              </table>
+                {/snippet}
+              </DataTable>
             </ScrollArea>
           </Card.Content>
         </Card.Root>

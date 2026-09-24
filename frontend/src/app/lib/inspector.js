@@ -1,7 +1,8 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
-// Generic pin-inspector display helpers: turn a `gpio_state` pin entry
+// Pin-inspector display helpers: turn a `gpio_state` pin entry
 // {gpio, name, role, type, mode, level?, hit?, raw?, mv?, detail?} into
-// human-readable labels. No SesameMaker specifics — copy with the tab.
+// human-readable labels. The pin/bus sections are generic (copy with the
+// tab); doorSummary at the bottom is SesameMaker-specific.
 
 export function pinTypeLabel(type) {
   switch (type) {
@@ -91,4 +92,30 @@ export function busMeaning(bus) {
     s += ` · ${addrs}`
   }
   return s
+}
+
+// ---- SesameMaker door/controller summary (door.svelte.js stores) ----
+
+// "All values" card rows as [name, value] pairs. Takes the stores (or plain
+// lookalikes in tests) so the tab stays markup-only.
+export function doorSummary(garage, protocol, dry) {
+  return [
+    ['Protocol', protocol.loaded ? protocol.id : garage.protocol],
+    ['Door', `${garage.door}${garage.moving ? ' (moving)' : ''}`],
+    ['Light', garage.light],
+    ['Lock', garage.locked],
+    ['Obstruction', garage.obstruction ? 'obstructed' : 'clear'],
+    ['Motion', garage.motion ? 'yes' : 'no'],
+    ['Panel', garage.panel],
+    [
+      'Sensors',
+      garage.sensors.valid
+        ? `open=${garage.sensors.open ? 'hit' : 'clear'} close=${garage.sensors.close ? 'hit' : 'clear'}`
+        : 'no sensors',
+    ],
+    [
+      'Dry config',
+      `relay=GPIO${dry.relay_gpio} open=GPIO${dry.open_gpio} close=GPIO${dry.close_gpio} mode=${dry.sensor_mode}`,
+    ],
+  ]
 }
