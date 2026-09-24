@@ -11,6 +11,8 @@ const { configureBackend } = require('./lib/backend')
 const { configureWifi } = require('./lib/wifi')
 const { uploadToDevice } = require('./lib/upload')
 const { resolveOtaPassword } = require('./lib/password')
+const { waitForDeviceOnNetwork } = require('./lib/discover')
+const { Spinner } = require('./lib/spinner')
 
 async function main() {
   try {
@@ -25,9 +27,10 @@ async function main() {
     args.uploadPassword = otaPassword
 
     await checkPrerequisites(args)
+    let wifiConfig = null
     if (!args.frontendOnly) {
       await configureBackend(args, otaPassword)
-      await configureWifi(args)
+      wifiConfig = await configureWifi(args)
       await buildBackendPIO(args)
     }
     if (!args.backendOnly) {
@@ -35,7 +38,29 @@ async function main() {
     }
     const finalResults = await uploadToDevice(args)
 
-    showCompletionMessage(args, finalResults, otaPassword)
+    // Serial flash with WiFi: the device reboots, joins WiFi via DHCP under a
+    // new unknown IP. Poll the network so we can print where it landed.
+    let discoveredDevices = []
+    if (
+      !args.otaIP &&
+      wifiConfig &&
+      (finalResults.backendUploaded || finalResults.frontendUploaded)
+    ) {
+      const spinner = new Spinner(
+        `Waiting for device to join "${wifiConfig.ssid}" (up to ~60s)...`,
+      )
+      spinner.start()
+      discoveredDevices = await waitForDeviceOnNetwork()
+      if (discoveredDevices.length > 0) {
+        spinner.stop(true, 'Device found on the network!')
+      } else {
+        spinner.stop()
+        logger.warning('Device did not show up on the network yet.')
+      }
+      console.log()
+    }
+
+    showCompletionMessage(args, finalResults, otaPassword, discoveredDevices)
   } catch (error) {
     logger.error('An unexpected error occurred:')
     console.error(error)
@@ -43,7 +68,7 @@ async function main() {
   }
 }
 
-function showCompletionMessage(args, results, otaPassword) {
+function showCompletionMessage(args, results, otaPassword, discoveredDevices = []) {
   logger.separator()
 
   if (otaPassword) {
@@ -58,6 +83,18 @@ function showCompletionMessage(args, results, otaPassword) {
         `Check your ESP32 at ${colors.yellow}http://${args.otaIP}${colors.reset} to verify the update.`,
       )
       logger.info("You can now access the web interface via the ESP32's IP address.")
+    } else if (discoveredDevices.length === 1) {
+      logger.success('🎉 Setup and deployment completed successfully!')
+      logger.info('Your ESP32 parking assistant is now running.')
+      logger.info(
+        `Device is online at ${colors.yellow}http://${discoveredDevices[0].ip}${colors.reset} — check it to verify the update.`,
+      )
+    } else if (discoveredDevices.length > 1) {
+      logger.success('🎉 Setup and deployment completed successfully!')
+      logger.info('Your ESP32 parking assistant is now running. Devices found on the network:')
+      for (const dev of discoveredDevices) {
+        logger.info(`  • ${colors.yellow}http://${dev.ip}${colors.reset}`)
+      }
     } else {
       logger.success('🎉 Setup and deployment completed successfully!')
       logger.info('Your ESP32 parking assistant is now running.')
@@ -67,6 +104,15 @@ function showCompletionMessage(args, results, otaPassword) {
     logger.success('🔧 Setup completed with partial deployment')
     if (results.backendUploaded) {
       logger.info('✓ Firmware uploaded - device should be running')
+      if (!args.otaIP && discoveredDevices.length === 1) {
+        logger.info(
+          `Device is online at ${colors.yellow}http://${discoveredDevices[0].ip}${colors.reset}.`,
+        )
+      } else if (!args.otaIP && discoveredDevices.length > 1) {
+        for (const dev of discoveredDevices) {
+          logger.info(`  • ${colors.yellow}http://${dev.ip}${colors.reset}`)
+        }
+      }
       if (!results.frontendUploaded && !args.backendOnly) {
         logger.warning(
           args.otaIP
