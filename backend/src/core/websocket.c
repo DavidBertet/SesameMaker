@@ -37,8 +37,10 @@ static esp_timer_handle_t ping_timer = NULL;
 // Slots for WS message handlers. Was 20, which silently dropped every
 // registration past the 20th (ping+pong take 2, main.c has 24) —
 // set_zigbee_config/pair/leave/reset and log_start/log_stop never ran.
-// Keep headroom above the count asserted in cli/lib/callbacks.test.js.
-#define MAX_CALLBACKS 32
+// Was 32, outgrown again at 33 (ping+pong + 31 in main.c) — log_stop was
+// the dead one. Keep headroom above the count asserted in
+// cli/lib/callbacks.test.js.
+#define MAX_CALLBACKS 40
 
 static char json[1024];
 

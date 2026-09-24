@@ -7,7 +7,11 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 
 function loadDiscover() {
-  delete require.cache[require.resolve('./discover.js')]
+  // discover.js is a facade: the destructured execPromise/selectFromList
+  // bindings live in the split modules, so bust all of them after mocking.
+  for (const m of ['./discover.js', './net_scan.js', './usb_list.js', './select.js']) {
+    delete require.cache[require.resolve(m)]
+  }
   return require('./discover.js')
 }
 
