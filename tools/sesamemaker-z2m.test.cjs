@@ -18,6 +18,10 @@ function fakeExpose(name) {
       this._desc = d
       return this
     },
+    withState(prop, toggle, desc, access, valueOn, valueOff) {
+      this._state = { prop, toggle, desc, access, valueOn, valueOff }
+      return this
+    },
   }
 }
 
@@ -26,6 +30,7 @@ const stubs = {
     presets: {
       cover: () => fakeExpose('cover'),
       switch: () => fakeExpose('switch'),
+      switch_: () => fakeExpose('switch'),
     },
   },
   'zigbee-herdsman-converters/lib/reporting': {
@@ -66,13 +71,17 @@ test('endpoint map follows interviewed endpoints', () => {
   assert.deepEqual(def.endpoint(device), { door: 10 })
 })
 
-test('exposes shrink to interviewed endpoints (dry-contact: cover only)', () => {
+test('exposes shrink to interviewed endpoints (dry-contact: switch only)', () => {
   present = new Set([10, 11, 12])
   assert.equal(def.exposes(device).length, 3)
   present = new Set([10])
   const list = def.exposes(device)
   assert.equal(list.length, 1)
-  assert.equal(list[0]._name, 'cover')
+  // Door is an OPEN/CLOSE switch, never a cover: a cover would advertise a
+  // STOP button HA renders dead (the on/off model has no halt to back it).
+  assert.equal(list[0]._name, 'switch')
+  assert.equal(list[0]._ep, 'door')
+  assert.deepEqual([list[0]._state.valueOn, list[0]._state.valueOff], ['OPEN', 'CLOSE'])
   // dummy device without getEndpoint (converter validation path) must not throw
   assert.equal(def.exposes({}).length, 1)
 })

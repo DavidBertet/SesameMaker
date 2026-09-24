@@ -1,7 +1,8 @@
 // Zigbee2MQTT external converter for SesameMaker (DavidBertet).
-// Gives Home Assistant a real garage-door cover (like the MQTT discovery
-// does) instead of bare switches: door = cover, light/lock as named
-// switches.
+// The door is a plain switch with OPEN/CLOSE values (not a cover: both the
+// exposes Cover and HA discovery hardcode a STOP button, and the on/off-only
+// Zigbee model has no mid-travel halt to back it — a dead button is worse
+// than a toggle). Light/lock are named switches as usual.
 //
 // Install: copy to the z2m external_converters dir (next to
 // configuration.yaml) as sesamemaker.js then restart z2m and re-interview the device.
@@ -18,9 +19,9 @@ const e = exposes.presets
 // Endpoint IDs must match ZB_EP_* in backend/src/app/zigbee_garage.c.
 const EP = { door: 10, light: 11, lock_remotes: 12 }
 
-// Door cover driven by the genOnOff cluster on endpoint 10:
-// ON = open, OFF = closed. STOP has no meaning on a binary door.
-const fzDoorCover = {
+// Door state driven by the genOnOff cluster on endpoint 10:
+// ON = open, OFF = closed. Reports OPEN/CLOSE like the switch exposes below.
+const fzDoorSwitch = {
   cluster: 'genOnOff',
   type: ['attributeReport', 'readResponse'],
   convert: (model, msg, publish, options, meta) => {
@@ -41,8 +42,9 @@ const fzSwitch = (epId) => ({
 })
 
 // Single state setter for every endpoint, switched by endpoint name: the
-// door speaks OPEN/CLOSE (STOP is a no-op on a binary door), light +
-// lock_remotes speak ON/OFF. Anything else returns undefined.
+// door speaks OPEN/CLOSE, light + lock_remotes speak ON/OFF. Anything else
+// returns undefined (a switch UI can never send STOP; manual publishes of
+// it are ignored — there is no halt to back it).
 const tzState = {
   key: ['state'],
   convertSet: async (entity, key, value, meta) => {
@@ -85,13 +87,18 @@ module.exports = [
     },
     exposes: (device) => {
       const has = (id) => typeof device.getEndpoint === 'function' && device.getEndpoint(id)
-      const list = [e.cover().withEndpoint('door').withDescription('Garage door')]
+      const list = [
+        e
+          .switch_()
+          .withState('state', false, 'Garage door', undefined, 'OPEN', 'CLOSE')
+          .withEndpoint('door'),
+      ]
       if (has(EP.light)) list.push(e.switch().withEndpoint('light').withDescription('Opener lamp'))
       if (has(EP.lock_remotes))
         list.push(e.switch().withEndpoint('lock_remotes').withDescription('Lock remotes (ON = remotes disabled)'))
       return list
     },
-    fromZigbee: [fzDoorCover, fzSwitch(EP.light), fzSwitch(EP.lock_remotes)],
+    fromZigbee: [fzDoorSwitch, fzSwitch(EP.light), fzSwitch(EP.lock_remotes)],
     toZigbee: [tzState],
     configure: [configure],
   },
