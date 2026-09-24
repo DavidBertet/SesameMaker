@@ -60,6 +60,8 @@
   // MQTT tab's configLoading): skeleton first, sections once known. The flag
   // lives on the shared store so the tab can hide the cards below as well.
   let unsub = $state(null)
+  let unsubZigbee = $state(null)
+  let unsubHk = $state(null)
 
   function syncForm() {
     form.id = protocolState.id
@@ -74,8 +76,8 @@
 
   onMount(() => {
     syncForm()
-    const unsubZigbee = initializeZigbee()
-    const unsubHk = initializeHomekit()
+    unsubZigbee = initializeZigbee()
+    unsubHk = initializeHomekit()
     // NOTE: read the message payload directly, not the stores. This listener
     // is registered before initializeGarage's (child onMount fires first),
     // so the stores still hold the previous protocol when this runs.
@@ -96,6 +98,7 @@
 
   onDestroy(() => {
     if (unsub) unsub()
+    if (unsubZigbee) unsubZigbee()
     if (unsubHk) unsubHk()
   })
 </script>
