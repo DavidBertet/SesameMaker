@@ -500,8 +500,10 @@ async function discoverUsbDevices() {
   return serial
 }
 
-// Pick a device from the discovered candidates. If exactly one is available it
-// is chosen automatically (and reported); otherwise the user is asked.
+// Pick a device from the discovered candidates. ALWAYS asks the user to
+// confirm — even when exactly one candidate is found. Auto-picking a single
+// result silently flashed the wrong device (e.g. an online spare while the
+// intended target was offline). Device selection is exempt from -y/--yes.
 async function selectDevice(networkDevices, usbDevices) {
   const netCount = networkDevices.length
   const usbCount = usbDevices.length
@@ -519,17 +521,11 @@ async function selectDevice(networkDevices, usbDevices) {
   }
 
   const total = netCount + usableUsb.length
-  if (total === 1) {
-    // Single candidate: no picker, just report it and move on.
-    if (netCount === 1) {
-      logger.success(`Found 1 SesameMaker device on the network at ${networkDevices[0].ip}.`)
-      return { kind: 'ota', ip: networkDevices[0].ip }
-    }
-    logger.success(`Found 1 SesameMaker device over USB on ${usableUsb[0].port}.`)
-    return { kind: 'serial', port: usableUsb[0].port }
-  }
-
-  logger.info('Multiple SesameMaker devices detected:')
+  logger.info(
+    total === 1
+      ? 'Found 1 SesameMaker device — please confirm it is the one to use:'
+      : 'Multiple SesameMaker devices detected:',
+  )
   if (usableUsb.length > 0 && usbIsFallback) {
     logger.warning('No ESP device detected over USB - showing all serial ports.')
   }

@@ -67,30 +67,31 @@ async function resolveDiscoveryTarget(args) {
 
   scanSpinner.stop()
 
+  // Device selection is always interactive — exempt from -y/--yes. Silently
+  // auto-picking (even a single result) flashed the wrong device. In a truly
+  // non-interactive session (no TTY) there is nobody to confirm, so require an
+  // explicit target instead of guessing.
+  if (args.autoYes && !(process.stdin.isTTY && process.stdout.isTTY)) {
+    logger.error('Non-interactive mode (-y) with device discovery is ambiguous.')
+    logger.info('Specify the target explicitly: --ota <IP> or --serial/--usb.')
+    process.exit(1)
+  }
+
   const target = await selectDevice(networkDevices, usbDevices)
   if (!target) {
     logger.info('No device selected. Install aborted.')
     process.exit(0)
   }
 
-  // A single device was auto-picked (and already reported by selectDevice), so
-  // a "Selected" line would be redundant. With multiple candidates the picker
-  // made us choose, so confirm that choice.
-  const autoPicked = networkDevices.length + usbDevices.length === 1
-
   if (target.kind === 'ota') {
     args.otaIP = target.ip
     args.discoveredKind = 'ota'
-    if (!autoPicked) {
-      logger.success(`Selected network device at ${target.ip}`)
-    }
+    logger.success(`Selected network device at ${target.ip}`)
   } else {
     args.usbOnly = true
     args.serialPort = target.port
     args.discoveredKind = 'serial'
-    if (!autoPicked) {
-      logger.success(`Selected USB device on ${target.port}`)
-    }
+    logger.success(`Selected USB device on ${target.port}`)
   }
   console.log()
 }

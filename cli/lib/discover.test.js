@@ -441,37 +441,42 @@ test('probeDevice does not flag a gzip page without the device marker', async ()
   }
 })
 
-test('selectDevice returns the single ota device without prompting', async () => {
-  const loggerMod = require('./logger')
-  const orig = loggerMod.logger.success
-  let reported = null
-  loggerMod.logger.success = (msg) => {
-    reported = msg
+test('selectDevice prompts even for a single ota device (must confirm target)', async () => {
+  const prompt = require('./prompt')
+  const orig = prompt.selectFromList
+  let received = null
+  prompt.selectFromList = async (q, options) => {
+    received = { q, options }
+    return options[0].value
   }
   try {
     const d = loadDiscover()
     const target = await d.selectDevice([{ ip: '192.168.1.10' }], [])
     assert.deepEqual(target, { kind: 'ota', ip: '192.168.1.10' })
-    assert.match(reported, /Found 1.*network at 192\.168\.1\.10/)
+    assert.ok(received, 'picker must be shown even for a single candidate')
+    assert.equal(received.options.length, 1)
+    assert.deepEqual(received.options[0].value, { kind: 'ota', ip: '192.168.1.10' })
   } finally {
-    loggerMod.logger.success = orig
+    prompt.selectFromList = orig
   }
 })
 
-test('selectDevice returns the single usb device without prompting', async () => {
-  const loggerMod = require('./logger')
-  const orig = loggerMod.logger.success
-  let reported = null
-  loggerMod.logger.success = (msg) => {
-    reported = msg
+test('selectDevice prompts even for a single usb device (must confirm target)', async () => {
+  const prompt = require('./prompt')
+  const orig = prompt.selectFromList
+  let received = null
+  prompt.selectFromList = async (q, options) => {
+    received = { q, options }
+    return options[0].value
   }
   try {
     const d = loadDiscover()
     const target = await d.selectDevice([], [{ port: '/dev/cu.usbserial-1' }])
     assert.deepEqual(target, { kind: 'serial', port: '/dev/cu.usbserial-1' })
-    assert.match(reported, /Found 1.*USB on \/dev\/cu\.usbserial-1/)
+    assert.ok(received, 'picker must be shown even for a single candidate')
+    assert.equal(received.options.length, 1)
   } finally {
-    loggerMod.logger.success = orig
+    prompt.selectFromList = orig
   }
 })
 
@@ -546,13 +551,13 @@ test('selectDevice warns when USB enumeration fell back to non-ESP ports', async
   }
 })
 
-test('selectDevice skips USB fallback ports and auto-picks a single network device', async () => {
+test('selectDevice prompts to confirm a single network device when USB is a fallback', async () => {
   const prompt = require('./prompt')
   const origPrompt = prompt.selectFromList
-  let prompted = false
-  prompt.selectFromList = async () => {
-    prompted = true
-    return null
+  let received = null
+  prompt.selectFromList = async (q, options) => {
+    received = { q, options }
+    return options[0].value
   }
 
   const loggerMod = require('./logger')
@@ -568,7 +573,9 @@ test('selectDevice skips USB fallback ports and auto-picks a single network devi
     usb.noEsp = true
     const target = await d.selectDevice([{ ip: '192.168.1.10' }], usb)
     assert.deepEqual(target, { kind: 'ota', ip: '192.168.1.10' })
-    assert.equal(prompted, false, 'network device auto-picked without a picker')
+    assert.ok(received, 'single network device must still be confirmed via picker')
+    assert.equal(received.options.length, 1, 'USB fallback ports are not offered')
+    assert.deepEqual(received.options[0].value, { kind: 'ota', ip: '192.168.1.10' })
     assert.equal(warned, null, 'no warning when fallback ports are ignored')
   } finally {
     prompt.selectFromList = origPrompt

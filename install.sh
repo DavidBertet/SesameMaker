@@ -64,7 +64,8 @@ Options:
                               asked interactively (hidden input) after device
                               selection unless you confirm reuse. Stored in
                               backend/src/secrets.h (gitignored, never committed)
-  -y, --yes                   Auto-confirm all prompts (non-interactive mode)
+  -y, --yes                   Auto-confirm all prompts except device selection
+                              (device target is always confirmed interactively)
   -f, --frontend-only         Build/deploy frontend only
   -b, --backend-only          Build/deploy backend only
   -d, --debug                 Verbose output (stream full build logs, timings)
@@ -85,8 +86,8 @@ Examples:
 
 Notes:
   - With no --ota/-o IP and no --serial/--usb, the tool scans the local network
-    and USB for SesameMaker devices and asks which one to use (auto-picks when
-    exactly one is found).
+    and USB for SesameMaker devices and always asks which one to use (even
+    when exactly one is found; -y never skips this confirm step).
   - Use -f or -b to target specific components
   - Enter your board when asked (default: current board)
   - Use -y to skip confirmation prompts
