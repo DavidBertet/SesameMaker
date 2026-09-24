@@ -89,18 +89,25 @@ test('fromZigbee routes by endpoint id', () => {
   assert.equal(door.convert(null, { endpoint: { ID: 10 }, data: {} }), undefined)
 })
 
-test('toZigbee routes by endpoint name, door keeps OPEN/CLOSE/STOP', async () => {
+test('toZigbee routes by endpoint name in one converter', async () => {
   present = new Set([10, 11, 12])
-  const [door, sw] = def.toZigbee
+  const [tz] = def.toZigbee
   calls.commands.length = 0
-  await door.convertSet({ getDevice: () => device }, 'state', 'OPEN', {})
+  // door (default + named): OPEN/CLOSE only, STOP is a no-op
+  await tz.convertSet({ getDevice: () => device }, 'state', 'OPEN', {})
   assert.deepEqual(calls.commands, [[10, 'genOnOff', 'on']])
-  assert.equal(await door.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'light' }), undefined)
-  assert.equal(await door.convertSet({ getDevice: () => device }, 'state', 'STOP', {}), undefined)
-  await sw.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'lock_remotes' })
+  await tz.convertSet({ getDevice: () => device }, 'state', 'CLOSE', { endpoint_name: 'door' })
+  assert.deepEqual(calls.commands.at(-1), [10, 'genOnOff', 'off'])
+  assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'STOP', {}), undefined)
+  assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'ON', {}), undefined)
+  // switches: ON/OFF by name, unknown names and door values ignored
+  await tz.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'lock_remotes' })
   assert.deepEqual(calls.commands.at(-1), [12, 'genOnOff', 'on'])
-  assert.equal(await sw.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'door' }), undefined)
-  assert.equal(await sw.convertSet({ getDevice: () => device }, 'state', 'ON', {}), undefined)
+  await tz.convertSet({ getDevice: () => device }, 'state', 'OFF', { endpoint_name: 'light' })
+  assert.deepEqual(calls.commands.at(-1), [11, 'genOnOff', 'off'])
+  assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'OPEN', { endpoint_name: 'light' }), undefined)
+  assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'bogus' }), undefined)
+  assert.equal(calls.commands.length, 4)
 })
 
 test('configure binds + reports only present endpoints', async () => {
@@ -110,4 +117,23 @@ test('configure binds + reports only present endpoints', async () => {
   await def.configure[0](device, {})
   assert.deepEqual(calls.bind, [10, 12])
   assert.deepEqual(calls.onOff, [10, 12])
+})
+
+test('endpoint IDs match ZB_EP_* in zigbee_garage.c', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const cSrc = fs.readFileSync(
+    path.join(__dirname, '..', 'backend', 'src', 'app', 'zigbee_garage.c'),
+    'utf8',
+  )
+  const jsSrc = fs.readFileSync(path.join(__dirname, 'sesamemaker-z2m.js'), 'utf8')
+  const cId = (name) => parseInt(cSrc.match(new RegExp(`#define\\s+${name}\\s+(\\d+)`))[1], 10)
+  const jsId = (name) => parseInt(jsSrc.match(new RegExp(`${name}:\\s*(\\d+)`))[1], 10)
+  for (const [js, c] of [
+    ['door', 'ZB_EP_DOOR'],
+    ['light', 'ZB_EP_LIGHT'],
+    ['lock_remotes', 'ZB_EP_LOCK'],
+  ]) {
+    assert.equal(jsId(js), cId(c), `${js} must equal ${c}`)
+  }
 })

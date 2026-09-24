@@ -40,24 +40,22 @@ const fzSwitch = (epId) => ({
   },
 })
 
-const tzDoorCover = {
+// Single state setter for every endpoint, switched by endpoint name: the
+// door speaks OPEN/CLOSE (STOP is a no-op on a binary door), light +
+// lock_remotes speak ON/OFF. Anything else returns undefined.
+const tzState = {
   key: ['state'],
   convertSet: async (entity, key, value, meta) => {
-    if (meta.endpoint_name !== undefined && meta.endpoint_name !== 'door') return
-    if (value === 'STOP') return // binary door: nothing to stop
-    const endpoint = entity.getDevice().getEndpoint(EP.door)
-    await endpoint.command('genOnOff', value === 'OPEN' ? 'on' : 'off', {}, {})
-    return { state: value }
-  },
-}
-
-// ON/OFF for light + lock_remotes, routed by endpoint name. Returns
-// undefined for anything else so the door converter (or nothing) handles it.
-const tzSwitch = {
-  key: ['state'],
-  convertSet: async (entity, key, value, meta) => {
-    const epId = EP[meta.endpoint_name]
-    if (epId === undefined || meta.endpoint_name === 'door') return
+    const name = meta.endpoint_name
+    if (name === undefined || name === 'door') {
+      if (value !== 'OPEN' && value !== 'CLOSE') return
+      const endpoint = entity.getDevice().getEndpoint(EP.door)
+      await endpoint.command('genOnOff', value === 'OPEN' ? 'on' : 'off', {}, {})
+      return { state: value }
+    }
+    const epId = EP[name]
+    if (epId === undefined) return
+    if (value !== 'ON' && value !== 'OFF') return
     const endpoint = entity.getDevice().getEndpoint(epId)
     await endpoint.command('genOnOff', value === 'ON' ? 'on' : 'off', {}, {})
     return { state: value }
@@ -94,7 +92,7 @@ module.exports = [
       return list
     },
     fromZigbee: [fzDoorCover, fzSwitch(EP.light), fzSwitch(EP.lock_remotes)],
-    toZigbee: [tzDoorCover, tzSwitch],
+    toZigbee: [tzState],
     configure: [configure],
   },
 ]

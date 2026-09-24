@@ -26,6 +26,8 @@ static const char *TAG = "ZIGBEE_GARAGE";
 // plain switches: door = On/Off Output (on = open), light = On/Off Light,
 // remote lockout = On/Off Output (on = remotes disabled). Light/lock only
 // exist when the active protocol drives them (dry-contact has neither).
+// IDs are mirrored in tools/sesamemaker-z2m.js (EP) — the parity test in
+// tools/sesamemaker-z2m.test.cjs enforces it, change both sides together.
 #define ZB_EP_DOOR 10
 #define ZB_EP_LIGHT 11
 #define ZB_EP_LOCK 12
