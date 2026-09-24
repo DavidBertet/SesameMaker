@@ -48,3 +48,6 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_homekit_services \
 cc -std=c11 -Wall -Wextra -o /tmp/test_ap_window \
     test_ap_window.c
 /tmp/test_ap_window
+cc -std=c11 -Wall -Wextra -o /tmp/test_event_routes \
+    test_event_routes.c
+/tmp/test_event_routes

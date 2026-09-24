@@ -73,6 +73,73 @@ esp_err_t write_float(const char *key, float value)
   return write_blob(key, (void *)&value, sizeof(float));
 }
 
+esp_err_t read_u8(const char *key, uint8_t *value)
+{
+  nvs_handle_t nvs_handle;
+  esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (ret != ESP_OK)
+  {
+    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(ret));
+    return ret;
+  }
+  ret = nvs_get_u8(nvs_handle, key, value);
+  nvs_close(nvs_handle);
+  return ret;
+}
+
+esp_err_t write_u8(const char *key, uint8_t value)
+{
+  nvs_handle_t nvs_handle;
+  esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (ret != ESP_OK)
+  {
+    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(ret));
+    return ret;
+  }
+  ret = nvs_set_u8(nvs_handle, key, value);
+  if (ret == ESP_OK)
+  {
+    ret = nvs_commit(nvs_handle);
+  }
+
+  nvs_close(nvs_handle);
+  return ret;
+}
+
+esp_err_t read_str(const char *key, char *buf, size_t bufsize)
+{
+  nvs_handle_t nvs_handle;
+  esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (ret != ESP_OK)
+  {
+    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(ret));
+    return ret;
+  }
+  size_t len = bufsize;
+  ret = nvs_get_str(nvs_handle, key, buf, &len);
+  nvs_close(nvs_handle);
+  return ret;
+}
+
+esp_err_t write_str(const char *key, const char *value)
+{
+  nvs_handle_t nvs_handle;
+  esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (ret != ESP_OK)
+  {
+    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(ret));
+    return ret;
+  }
+  ret = nvs_set_str(nvs_handle, key, value);
+  if (ret == ESP_OK)
+  {
+    ret = nvs_commit(nvs_handle);
+  }
+
+  nvs_close(nvs_handle);
+  return ret;
+}
+
 esp_err_t read_blob(const char *key, void *outValue, size_t *required_size)
 {
   nvs_handle_t nvs_handle;

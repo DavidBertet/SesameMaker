@@ -4,6 +4,9 @@
 
 #include "esp_err.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 // Returns ESP_OK when both partitions are usable. On persistent failure
 // logs and returns the error instead of aborting: the caller boots
 // degraded (defaults) rather than panic-looping on corrupt flash.
@@ -11,6 +14,12 @@ esp_err_t setup_storage(void);
 
 esp_err_t read_float(const char *key, float *value, float defaultValue);
 esp_err_t write_float(const char *key, float value);
+
+esp_err_t read_u8(const char *key, uint8_t *value);
+esp_err_t write_u8(const char *key, uint8_t value);
+
+esp_err_t read_str(const char *key, char *buf, size_t bufsize);
+esp_err_t write_str(const char *key, const char *value);
 
 esp_err_t read_blob(const char *key, void *outValue, size_t *required_size);
 esp_err_t write_blob(const char *key, const void *value, size_t required_size);

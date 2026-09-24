@@ -3,8 +3,9 @@
 #include "wifi.h"
 
 #include "ap_window.h"
+#include "event_routes.h"
+#include "storage.h"
 #include "ws_wifi.h"
-
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -37,10 +38,9 @@
 #define AP_WIFI_CHANNEL 10
 #define MAX_AP_CONN 2
 
-// Explicit-forget flag in the app "storage" NVS namespace. Set on user-initiated
-// disconnect so build-time DEFAULT_WIFI_* is not resurrected on next reboot.
-// Cleared on any new manual connect.
-#define WIFI_STORAGE_NS "storage"
+// Explicit-forget flag in the app "storage" NVS namespace (see storage.h).
+// Set on user-initiated disconnect so build-time DEFAULT_WIFI_* is not
+// resurrected on next reboot. Cleared on any new manual connect.
 #define WIFI_FORGOT_KEY "wifi_forgot"
 // Last applied DEFAULT_WIFI_GEN. A fresh `install --wifi-ssid` bumps the baked
 // gen, so a gen mismatch means "new provisioning, override once".
@@ -57,24 +57,25 @@ typedef struct
 
 // WiFi event group
 static EventGroupHandle_t s_wifi_event_group = NULL;
-static const int WIFI_CONNECTED_BIT = BIT0;
-static const int WIFI_FAIL_BIT = BIT1;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT BIT1
+// Set when the fallback AP finishes starting. Only the AP-fallback paths
+// wait on it (they don't need a STA link, just the portal being up).
+#define WIFI_AP_STARTED_BIT BIT2
 
 // Connection state
-static bool wifi_connecting = false;
-static bool wifi_connected = false;
+static bool s_wifi_connecting = false;
+static bool s_wifi_connected = false;
 // True while setup_wifi() is about to apply build-time defaults. The
 // STA_START handler must skip its auto-connect then: set_config while a
 // connect is in flight aborts with ESP_ERR_WIFI_STATE (0x3006).
 static bool s_provision_pending = false;
 static int s_retry_num = 0;
-static const int WIFI_MAXIMUM_RETRY = 5;
+#define WIFI_MAXIMUM_RETRY 5
 
 // Background reconnect timer so STA mode never gives up for good
 #define WIFI_RECONNECT_PERIOD_US (30ULL * 1000000ULL) // 30 s
 static esp_timer_handle_t s_reconnect_timer = NULL;
-
-static void start_reconnect_timer(void);
 
 // One-shot timer closing the fallback-AP config window (AP_AUTO_OFF_S).
 // Drops to STA-only: the portal is unreachable, STA keeps its background
@@ -170,62 +171,32 @@ static bool stop_reconnect_timer(void)
 
 static bool wifi_is_forgotten(void)
 {
-    nvs_handle_t handle;
-    if (nvs_open(WIFI_STORAGE_NS, NVS_READONLY, &handle) != ESP_OK)
-    {
-        return false;
-    }
     uint8_t forgot = 0;
-    esp_err_t err = nvs_get_u8(handle, WIFI_FORGOT_KEY, &forgot);
-    nvs_close(handle);
-    return err == ESP_OK && forgot != 0;
+    return read_u8(WIFI_FORGOT_KEY, &forgot) == ESP_OK && forgot != 0;
 }
 
 static void wifi_set_forgotten(bool forgot)
 {
-    nvs_handle_t handle;
-    if (nvs_open(WIFI_STORAGE_NS, NVS_READWRITE, &handle) != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to open storage NVS for wifi forgot flag");
-        return;
-    }
     if (forgot)
     {
-        nvs_set_u8(handle, WIFI_FORGOT_KEY, 1);
+        write_u8(WIFI_FORGOT_KEY, 1);
     }
     else
     {
-        nvs_erase_key(handle, WIFI_FORGOT_KEY);
+        delete_blob(WIFI_FORGOT_KEY);
     }
-    nvs_commit(handle);
-    nvs_close(handle);
 }
 
 static bool wifi_gen_applied(const char *baked_gen)
 {
-    nvs_handle_t handle;
-    if (nvs_open(WIFI_STORAGE_NS, NVS_READONLY, &handle) != ESP_OK)
-    {
-        return false;
-    }
     char stored[WIFI_GEN_MAX_LEN + 1] = {0};
-    size_t len = sizeof(stored);
-    esp_err_t err = nvs_get_str(handle, WIFI_GEN_KEY, stored, &len);
-    nvs_close(handle);
-    return err == ESP_OK && strcmp(stored, baked_gen) == 0;
+    return read_str(WIFI_GEN_KEY, stored, sizeof(stored)) == ESP_OK &&
+           strcmp(stored, baked_gen) == 0;
 }
 
 static void wifi_mark_gen_applied(const char *baked_gen)
 {
-    nvs_handle_t handle;
-    if (nvs_open(WIFI_STORAGE_NS, NVS_READWRITE, &handle) != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to open storage NVS for wifi gen flag");
-        return;
-    }
-    nvs_set_str(handle, WIFI_GEN_KEY, baked_gen);
-    nvs_commit(handle);
-    nvs_close(handle);
+    write_str(WIFI_GEN_KEY, baked_gen);
 }
 
 static void wifi_apply_build_defaults(void)
@@ -241,6 +212,26 @@ static void wifi_apply_build_defaults(void)
     default_config.sta.pmf_cfg.required = false;
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &default_config));
     ESP_ERROR_CHECK(esp_wifi_connect());
+}
+
+// Bring up the Wi-Fi driver in the given mode: init, coex handover, start.
+// Netif creation and AP config stay with the caller.
+static void wifi_start_driver(wifi_mode_t mode)
+{
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    // Let coex own the Wi-Fi PS schedule so 802.15.4 RX can't starve
+    // Wi-Fi entirely. Must be after init!
+    ESP_ERROR_CHECK(esp_wifi_coex_pwr_configure(true));
+#endif
+    ESP_ERROR_CHECK(esp_wifi_set_mode(mode));
+    ESP_ERROR_CHECK(esp_wifi_start());
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
+    // Modem-sleep lets the arbiter time-slice the radio to 802.15.4.
+    // Must be after start!
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
+#endif
 }
 
 static void setup_apsta(void)
@@ -263,20 +254,7 @@ static void setup_apsta(void)
 
     esp_netif_create_default_wifi_ap();
 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
-    // Let coex own the Wi-Fi PS schedule so 802.15.4 RX can't starve
-    // Wi-Fi entirely. Must be after init!
-    ESP_ERROR_CHECK(esp_wifi_coex_pwr_configure(true));
-#endif
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
-    // Modem-sleep lets the arbiter time-slice the radio to 802.15.4.
-    // Must be after start!
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
-#endif
+    wifi_start_driver(WIFI_MODE_APSTA);
 
     wifi_config_t wifi_config = {
         .ap = {
@@ -303,118 +281,142 @@ static esp_err_t setup_sta(void)
 {
     esp_netif_create_default_wifi_sta();
 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
-    // Same coex PS handover as setup_apsta: after init, before start.
-    ESP_ERROR_CHECK(esp_wifi_coex_pwr_configure(true));
-#endif
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
-    // Modem-sleep so the arbiter can time-slice to 802.15.4: after start.
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
-#endif
+    wifi_start_driver(WIFI_MODE_STA);
 
     ESP_LOGI(TAG, "WiFi STA init finished.");
     return ESP_OK;
 }
 
+static void on_ap_start(void *event_data)
+{
+    (void)event_data;
+    // NOTE: deliberately does NOT set WIFI_CONNECTED_BIT — an AP start is
+    // not a STA connection, and wifi_connect_task waits on that bit with no
+    // timeout (a portal (re)start would fake a successful STA connect).
+    ESP_LOGI(TAG, "WiFi AP started successfully!");
+    xEventGroupSetBits(s_wifi_event_group, WIFI_AP_STARTED_BIT);
+}
+
+static void on_ap_staconnected(void *event_data)
+{
+    wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
+    ESP_LOGI(TAG, "Station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
+    if (s_ap_stations == 0 && s_ap_off_timer != NULL && esp_timer_is_active(s_ap_off_timer))
+    {
+        // First station on an empty portal: pause the countdown so a
+        // user mid-configuration is never kicked off. As long as
+        // someone is on the AP, the AP stays.
+        esp_timer_stop(s_ap_off_timer);
+        ESP_LOGI(TAG, "Portal occupied, auto-off paused");
+    }
+    s_ap_stations++;
+}
+
+static void on_ap_stadisconnected(void *event_data)
+{
+    wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
+    ESP_LOGI(TAG, "Station " MACSTR " leave, AID=%d", MAC2STR(event->mac), event->aid);
+    if (s_ap_stations > 0)
+    {
+        s_ap_stations--;
+    }
+    if (s_ap_stations == 0)
+    {
+        // Portal empty again: fresh window from here.
+        arm_ap_auto_off();
+    }
+}
+
+static void on_sta_start(void *event_data)
+{
+    (void)event_data;
+    ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
+    if (s_provision_pending)
+    {
+        // setup_wifi() applies build-time defaults right after start and
+        // connects itself; an auto-connect here would put set_config in a
+        // connecting state and abort the boot.
+        return;
+    }
+    esp_wifi_connect();
+}
+
+static void on_sta_disconnected(void *event_data)
+{
+    s_wifi_connected = false;
+    const wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
+    ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED reason %d", event->reason);
+    // Only device-initiated disconnects (we called esp_wifi_disconnect())
+    // should skip retrying. Any network-side drop - beacon timeout,
+    // handshake timeout, auth/assoc fail, AP gone - must be retried.
+    // The old `reason < 200` check wrongly swallowed real drop reasons
+    // (e.g. HANDSHAKE_TIMEOUT=67, 4WAY_HANDSHAKE_TIMEOUT=15) and left
+    // neither the quick retry loop nor the background timer running,
+    // so STA mode silently stopped reconnecting for good.
+    if (event->reason == WIFI_REASON_ASSOC_LEAVE ||
+        event->reason == WIFI_REASON_AUTH_LEAVE)
+    {
+        return;
+    }
+
+    if (s_retry_num < WIFI_MAXIMUM_RETRY)
+    {
+        esp_wifi_connect();
+        s_retry_num++;
+        ESP_LOGI(TAG, "Retry to connect to the AP");
+    }
+    else
+    {
+        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+        s_wifi_connecting = false;
+        // Quick retries exhausted: keep retrying in the background
+        // so STA mode never loses access forever
+        start_reconnect_timer();
+    }
+    ESP_LOGI(TAG, "Connect to the AP fail");
+}
+
+static void on_sta_got_ip(void *event_data)
+{
+    ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+    ESP_LOGI(TAG, "STA Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
+    s_retry_num = 0;
+    bool was_reconnecting = stop_reconnect_timer();
+    s_wifi_connected = true;
+    s_wifi_connecting = false;
+    xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    if (was_reconnecting)
+    {
+        // Reconnected in the background: notify websocket clients
+        ws_handle_wifi_status(NULL, 0);
+    }
+}
+
+// Event bases (WIFI_EVENT, IP_EVENT) are externs, not constant expressions,
+// so they can't key a file-scope table — one id-keyed table per base
+// (ids are enum constants), routed through event_routes.h.
+static const event_route_t s_wifi_routes[] = {
+    {WIFI_EVENT_AP_START, on_ap_start},
+    {WIFI_EVENT_AP_STACONNECTED, on_ap_staconnected},
+    {WIFI_EVENT_AP_STADISCONNECTED, on_ap_stadisconnected},
+    {WIFI_EVENT_STA_START, on_sta_start},
+    {WIFI_EVENT_STA_DISCONNECTED, on_sta_disconnected},
+};
+
+static const event_route_t s_ip_routes[] = {
+    {IP_EVENT_STA_GOT_IP, on_sta_got_ip},
+};
+
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START)
+    (void)arg;
+    if (event_base == WIFI_EVENT)
     {
-        printf("WiFi AP started successfully!\n");
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        event_routes_dispatch(s_wifi_routes, sizeof(s_wifi_routes) / sizeof(s_wifi_routes[0]), event_id, event_data);
     }
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED)
+    else if (event_base == IP_EVENT)
     {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-        ESP_LOGI(TAG, "Station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
-        if (s_ap_stations == 0 && s_ap_off_timer != NULL && esp_timer_is_active(s_ap_off_timer))
-        {
-            // First station on an empty portal: pause the countdown so a
-            // user mid-configuration is never kicked off. As long as
-            // someone is on the AP, the AP stays.
-            esp_timer_stop(s_ap_off_timer);
-            ESP_LOGI(TAG, "Portal occupied, auto-off paused");
-        }
-        s_ap_stations++;
-    }
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
-    {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-        ESP_LOGI(TAG, "Station " MACSTR " leave, AID=%d", MAC2STR(event->mac), event->aid);
-        if (s_ap_stations > 0)
-        {
-            s_ap_stations--;
-        }
-        if (s_ap_stations == 0)
-        {
-            // Portal empty again: fresh window from here.
-            arm_ap_auto_off();
-        }
-    }
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
-    {
-        ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
-        if (s_provision_pending)
-        {
-            // setup_wifi() applies build-time defaults right after start and
-            // connects itself; an auto-connect here would put set_config in a
-            // connecting state and abort the boot.
-            return;
-        }
-        esp_wifi_connect();
-    }
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
-    {
-        wifi_connected = false;
-        const wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
-        ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED reason %d", event->reason);
-        // Only device-initiated disconnects (we called esp_wifi_disconnect())
-        // should skip retrying. Any network-side drop - beacon timeout,
-        // handshake timeout, auth/assoc fail, AP gone - must be retried.
-        // The old `reason < 200` check wrongly swallowed real drop reasons
-        // (e.g. HANDSHAKE_TIMEOUT=67, 4WAY_HANDSHAKE_TIMEOUT=15) and left
-        // neither the quick retry loop nor the background timer running,
-        // so STA mode silently stopped reconnecting for good.
-        if (event->reason == WIFI_REASON_ASSOC_LEAVE ||
-            event->reason == WIFI_REASON_AUTH_LEAVE)
-        {
-            return;
-        }
-
-        if (s_retry_num < WIFI_MAXIMUM_RETRY)
-        {
-            esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "Retry to connect to the AP");
-        }
-        else
-        {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-            wifi_connecting = false;
-            // Quick retries exhausted: keep retrying in the background
-            // so STA mode never loses access forever
-            start_reconnect_timer();
-        }
-        ESP_LOGI(TAG, "Connect to the AP fail");
-    }
-    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
-    {
-        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "STA Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
-        s_retry_num = 0;
-        bool was_reconnecting = stop_reconnect_timer();
-        wifi_connected = true;
-        wifi_connecting = false;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        if (was_reconnecting)
-        {
-            // Reconnected in the background: notify websocket clients
-            ws_handle_wifi_status(NULL, 0);
-        }
+        event_routes_dispatch(s_ip_routes, sizeof(s_ip_routes) / sizeof(s_ip_routes[0]), event_id, event_data);
     }
 }
 
@@ -468,7 +470,7 @@ bool wait_wifi_connection(void)
                                            pdFALSE,
                                            pdMS_TO_TICKS(10000)); // Wait 10 seconds
 
-    wifi_connecting = false;
+    s_wifi_connecting = false;
 
     if (bits & WIFI_CONNECTED_BIT)
     {
@@ -478,6 +480,17 @@ bool wait_wifi_connection(void)
     {
         return false;
     }
+}
+
+// Wait for the fallback AP to finish starting (portal usable). Only for the
+// AP-fallback paths, which need the portal up rather than a STA link.
+static void wait_ap_started(void)
+{
+    xEventGroupWaitBits(s_wifi_event_group,
+                        WIFI_AP_STARTED_BIT,
+                        pdFALSE,
+                        pdFALSE,
+                        pdMS_TO_TICKS(10000)); // Wait 10 seconds
 }
 
 esp_err_t setup_wifi(void)
@@ -558,19 +571,19 @@ esp_err_t setup_wifi(void)
     {
         ESP_LOGW(TAG, "Auto-connect failed or timed out, starting AP mode");
         setup_apsta(); // Fall back to AP mode
-        wait_wifi_connection();
+        wait_ap_started();
         return ESP_FAIL;
     }
 }
 
 bool is_wifi_connected(void)
 {
-    return wifi_connected;
+    return s_wifi_connected;
 }
 
 bool is_wifi_connecting(void)
 {
-    return wifi_connecting;
+    return s_wifi_connecting;
 }
 
 bool is_wifi_setup(void)
@@ -607,12 +620,12 @@ esp_err_t wifi_start_sta_connection(const char *ssid, const char *password)
     // (stored NVS creds take precedence from here on).
     wifi_set_forgotten(false);
 
-    wifi_connecting = true;
+    s_wifi_connecting = true;
 
     wifi_credentials_t *creds = malloc(sizeof(wifi_credentials_t));
     if (!creds)
     {
-        wifi_connecting = false;
+        s_wifi_connecting = false;
         return ESP_ERR_NO_MEM;
     }
     strncpy(creds->ssid, ssid, sizeof(creds->ssid) - 1);
@@ -631,7 +644,7 @@ esp_err_t wifi_start_sta_connection(const char *ssid, const char *password)
     BaseType_t result = xTaskCreate(wifi_connect_task, "wifi_connect_task", 4096, creds, 5, NULL);
     if (result != pdPASS)
     {
-        wifi_connecting = false;
+        s_wifi_connecting = false;
         free(creds);
         return ESP_FAIL;
     }
@@ -671,7 +684,7 @@ void wifi_stop_sta_connection(void)
 
     // Restart in AP mode
     setup_apsta();
-    wait_wifi_connection();
+    wait_ap_started();
 
     // Broadcast new values
     ws_handle_wifi_status(NULL, 0);
