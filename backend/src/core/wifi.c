@@ -90,7 +90,9 @@ static void ap_off_timer_callback(void *arg)
 {
     if (s_ap_stations > 0)
     {
-        ESP_LOGI(TAG, "%d station(s) still on AP, extending window by %d s", s_ap_stations, AP_AUTO_OFF_S);
+        // Join/stop race: a station landed after the timer was armed.
+        // Never kick them — re-arm and let the countdown resume on leave.
+        ESP_LOGI(TAG, "%d station(s) still on AP, keeping it until they leave", s_ap_stations);
         ESP_ERROR_CHECK(esp_timer_start_once(s_ap_off_timer, (uint64_t)AP_AUTO_OFF_S * 1000000ULL));
         return;
     }
@@ -329,6 +331,14 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     {
         wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
         ESP_LOGI(TAG, "Station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
+        if (s_ap_stations == 0 && s_ap_off_timer != NULL && esp_timer_is_active(s_ap_off_timer))
+        {
+            // First station on an empty portal: pause the countdown so a
+            // user mid-configuration is never kicked off. As long as
+            // someone is on the AP, the AP stays.
+            esp_timer_stop(s_ap_off_timer);
+            ESP_LOGI(TAG, "Portal occupied, auto-off paused");
+        }
         s_ap_stations++;
     }
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
