@@ -45,3 +45,6 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_pin_inspector \
 cc -std=c11 -Wall -Wextra -o /tmp/test_homekit_services \
     test_homekit_services.c
 /tmp/test_homekit_services
+cc -std=c11 -Wall -Wextra -o /tmp/test_ap_window \
+    test_ap_window.c
+/tmp/test_ap_window

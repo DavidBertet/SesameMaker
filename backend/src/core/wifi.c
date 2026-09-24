@@ -2,6 +2,7 @@
 
 #include "wifi.h"
 
+#include "ap_window.h"
 #include "ws_wifi.h"
 
 #include <string.h>
@@ -74,6 +75,56 @@ static const int WIFI_MAXIMUM_RETRY = 5;
 static esp_timer_handle_t s_reconnect_timer = NULL;
 
 static void start_reconnect_timer(void);
+
+// One-shot timer closing the fallback-AP config window (AP_AUTO_OFF_S).
+// Drops to STA-only: the portal is unreachable, STA keeps its background
+// reconnect attempts. A missed window needs a reboot for a fresh one.
+static esp_timer_handle_t s_ap_off_timer = NULL;
+
+// Stations currently joined to the fallback AP. While > 0 the auto-off
+// window is paused so a user mid-configuration is never kicked off; the
+// last disconnect re-arms a fresh window.
+static int s_ap_stations = 0;
+
+static void ap_off_timer_callback(void *arg)
+{
+    if (s_ap_stations > 0)
+    {
+        ESP_LOGI(TAG, "%d station(s) still on AP, extending window by %d s", s_ap_stations, AP_AUTO_OFF_S);
+        ESP_ERROR_CHECK(esp_timer_start_once(s_ap_off_timer, (uint64_t)AP_AUTO_OFF_S * 1000000ULL));
+        return;
+    }
+    ESP_LOGW(TAG, "AP config window expired, disabling AP");
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to disable AP: %s", esp_err_to_name(err));
+    }
+}
+
+// Arm (or re-arm) the AP auto-off window. Called on every AP (re)start so an
+// explicit disconnect after a previous auto-off still gets a fresh window.
+static void arm_ap_auto_off(void)
+{
+    if (ap_window_action(AP_AUTO_OFF_S) != AP_WINDOW_TIMED)
+    {
+        return; // disabled (caller skips AP) or forever: no timer
+    }
+    if (s_ap_off_timer == NULL)
+    {
+        const esp_timer_create_args_t timer_args = {
+            .callback = &ap_off_timer_callback,
+            .name = "ap_auto_off",
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_ap_off_timer));
+    }
+    if (esp_timer_is_active(s_ap_off_timer))
+    {
+        ESP_ERROR_CHECK(esp_timer_stop(s_ap_off_timer));
+    }
+    ESP_ERROR_CHECK(esp_timer_start_once(s_ap_off_timer, (uint64_t)AP_AUTO_OFF_S * 1000000ULL));
+    ESP_LOGI(TAG, "AP will auto-disable in %d s (missed it? reboot for a fresh window)", AP_AUTO_OFF_S);
+}
 
 static void reconnect_timer_callback(void *arg)
 {
@@ -192,9 +243,19 @@ static void wifi_apply_build_defaults(void)
 
 static void setup_apsta(void)
 {
-    // Check if AP is already setup
+    // AP_AUTO_OFF_S == 0: STA-only posture, never bring the AP up.
+    if (ap_window_action(AP_AUTO_OFF_S) == AP_WINDOW_DISABLED)
+    {
+        ESP_LOGW(TAG, "Fallback AP disabled by config (AP_AUTO_OFF_S=0), staying STA-only");
+        return;
+    }
+
+    // AP netif already exists (already up, or left over from a previous
+    // auto-off): re-enable AP mode and re-arm the window.
     if (esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"))
     {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+        arm_ap_auto_off();
         return;
     }
 
@@ -231,6 +292,8 @@ static void setup_apsta(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
 
+    arm_ap_auto_off();
+
     ESP_LOGI(TAG, "WiFi AP init finished. SSID:%s password:%s channel:%d", AP_WIFI_SSID, AP_WIFI_PASS, AP_WIFI_CHANNEL);
 }
 
@@ -266,11 +329,21 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     {
         wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
         ESP_LOGI(TAG, "Station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
+        s_ap_stations++;
     }
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
     {
         wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
         ESP_LOGI(TAG, "Station " MACSTR " leave, AID=%d", MAC2STR(event->mac), event->aid);
+        if (s_ap_stations > 0)
+        {
+            s_ap_stations--;
+        }
+        if (s_ap_stations == 0)
+        {
+            // Portal empty again: fresh window from here.
+            arm_ap_auto_off();
+        }
     }
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
     {

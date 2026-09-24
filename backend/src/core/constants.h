@@ -43,6 +43,14 @@
 #define ZIGBEE_BOOT_GPIO -1
 #endif
 
+// ==== SesameMaker: fallback AP auto-off ====
+// Anyone in radio range can join the "SesameMaker" config AP and drive the
+// door, so it must not stay up forever.
+//   0  = AP never starts (STA-only; configure via serial/OTA)
+//   -1 = AP stays on forever (insecure, debug only)
+//   >0 = AP shuts off N seconds after it comes up (missed it? reboot).
+#define AP_AUTO_OFF_S 120
+
 // ==== SesameMaker: task timing ====
 #define GARAGE_TICK_MS 25
 #define GARAGE_BROADCAST_INTERVAL_MS 1000
