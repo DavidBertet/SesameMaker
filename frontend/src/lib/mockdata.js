@@ -4,6 +4,7 @@ import { planDoorTransition } from '../app/lib/garage.js'
 
 let isConnected = false
 let logIntervals = new Set()
+let busFrames = 128
 
 // ---- Garage mock state ----
 let garage = {
@@ -340,6 +341,110 @@ export function generateMockResponse(data) {
           tx_total: 113,
         },
       ]
+
+    case 'get_gpio_state': {
+      // Mirror garageStatus(): in drycontact the reed hits derive from the
+      // door, otherwise use the stored snapshot.
+      const snap = garage.protocol === 'drycontact' ? drySensorsFor(garage.door) : garage.sensors
+      busFrames += 3 // pretend the wall bus keeps talking between polls
+      const openHit = snap.open
+      const closeHit = snap.close
+      const openLevel = dryCfg.active_low ? (openHit ? 0 : 1) : openHit ? 1 : 0
+      const closeLevel = dryCfg.active_low ? (closeHit ? 0 : 1) : closeHit ? 1 : 0
+      const pins = [
+        {
+          gpio: 4,
+          name: 'GARAGE_TX',
+          role: 'secplus1 TX driver',
+          type: 'uart',
+          mode: 'output',
+          level: 0,
+          edges: 12,
+          idle_ms: 4000,
+          detail: 'open-collector · 1200 baud 8E1 half-duplex',
+        },
+        {
+          gpio: 16,
+          name: 'GARAGE_RX',
+          role: 'secplus1 RX line',
+          type: 'uart',
+          mode: 'input',
+          level: 1,
+          edges: 48,
+          idle_ms: 300,
+          detail: 'voltage divider · 1200 baud 8E1',
+        },
+        {
+          gpio: dryCfg.relay_gpio,
+          name: 'DRY_RELAY',
+          role: 'dry relay driver',
+          type: 'digital',
+          mode: 'output',
+          level: 0,
+          edges: 0,
+        },
+      ]
+      if (dryCfg.sensor_mode === 2) {
+        pins.push(
+          {
+            gpio: dryCfg.open_gpio,
+            name: 'DRY_OPEN',
+            role: 'dry open reed',
+            type: 'digital',
+            mode: 'input',
+            level: openLevel,
+            hit: openHit,
+            edges: openHit ? 2 : 0,
+          },
+          {
+            gpio: dryCfg.close_gpio,
+            name: 'DRY_CLOSE',
+            role: 'dry close reed',
+            type: 'digital',
+            mode: 'input',
+            level: closeLevel,
+            hit: closeHit,
+            edges: closeHit ? 2 : 0,
+          },
+        )
+      } else if (dryCfg.sensor_mode === 1) {
+        pins.push({
+          gpio: dryCfg.close_gpio,
+          name: 'DRY_CLOSE',
+          role: 'dry close reed',
+          type: 'digital',
+          mode: 'input',
+          level: closeLevel,
+          hit: closeHit,
+          edges: closeHit ? 2 : 0,
+        })
+      }
+      return [
+        {
+          type: 'gpio_state',
+          pins,
+          buses: [
+            {
+              name: 'WALLBUS',
+              type: 'uart',
+              status: 'valid',
+              frames_ok: busFrames,
+              frame_errors: 2,
+              parity_errors: 0,
+              idle_ms: 320,
+              error_idle_ms: 4100,
+              detail: '1200 baud 8E1',
+            },
+          ],
+        },
+      ]
+    }
+
+    case 'bus_capture_start':
+      return [{ type: 'bus_capture', active: true }]
+
+    case 'bus_capture_stop':
+      return [{ type: 'bus_capture', active: false }]
 
     case 'log_start': {
       const mockLogs = [

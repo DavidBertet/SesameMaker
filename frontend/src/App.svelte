@@ -3,6 +3,7 @@
 <script>
   import SystemTab from 'src/core/components/tab/SystemTab.svelte'
   import DoorTab from 'src/app/components/tab/DoorTab.svelte'
+  import GpioTab from 'src/app/components/tab/GpioTab.svelte'
   import ProtocolTab from 'src/app/components/tab/ProtocolTab.svelte'
   import WifiTab from 'src/core/components/tab/WifiTab.svelte'
   import DeviceTab from 'src/components/tab/DeviceTab.svelte'
@@ -30,7 +31,7 @@
   import Sonner from '$lib/components/ui/sonner/sonner.svelte'
   import { cn } from '$lib/utils'
   import { Wifi, Info, Heart } from 'lucide-svelte'
-  import { DoorOpen, Activity, Radio } from 'lucide-svelte'
+  import { DoorOpen, Activity, Radio, Cpu } from 'lucide-svelte'
 
   const isDev = import.meta.env.DEV
 
@@ -120,6 +121,12 @@
       label: 'System Info',
       icon: Info,
       component: SystemTab,
+    },
+    {
+      id: 'gpio',
+      label: 'GPIO Live',
+      icon: Cpu,
+      component: GpioTab,
     },
   ]
 

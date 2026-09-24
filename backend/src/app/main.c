@@ -24,10 +24,12 @@
 #include "ws_wifi.h"
 #include "ws_settings.h"
 #include "ws_garage.h"
+#include "ws_pins.h"
 #include "ws_protocol.h"
 #include "ws_log.h"
 
 #include "garage_controller.h"
+#include "app_pins.h"
 #include "homekit.h"
 #include "homekit_garage.h"
 #include "protocol_registry.h"
@@ -138,6 +140,12 @@ void app_main()
 
   register_callback("get_protocol", ws_handle_get_protocol);
   register_callback("set_protocol", ws_handle_set_protocol);
+
+  // Live pin inspector: app declares the table, core samples + formats.
+  app_pins_register();
+  register_callback("get_gpio_state", ws_handle_get_gpio_state);
+  register_callback("bus_capture_start", ws_handle_bus_capture_start);
+  register_callback("bus_capture_stop", ws_handle_bus_capture_stop);
 
   register_callback("get_mqtt_config", ws_handle_get_mqtt_config);
   register_callback("set_mqtt_config", ws_handle_set_mqtt_config);

@@ -39,6 +39,9 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_zb_attr \
 cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee_ieee \
     test_zigbee_ieee.c
 /tmp/test_zigbee_ieee
+cc -std=c11 -Wall -Wextra -o /tmp/test_pin_inspector \
+    test_pin_inspector.c ../src/core/pin_inspector.c
+/tmp/test_pin_inspector
 cc -std=c11 -Wall -Wextra -o /tmp/test_homekit_services \
     test_homekit_services.c
 /tmp/test_homekit_services
