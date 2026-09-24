@@ -97,6 +97,76 @@ static void w_out(writer_t *w, const char *fmt, ...)
     w->off += (size_t)need;
 }
 
+// ==== Pure bus-table helpers (used by the IDF capture session) ====
+
+bool bus_desc_usable(const bus_desc_t *d)
+{
+    if (!d->name)
+    {
+        return false;
+    }
+    switch (d->type)
+    {
+    case BUS_UART:
+        return d->rx_gpio >= 0 && d->baud > 0;
+    case BUS_I2C:
+        return d->sda_gpio >= 0 && d->scl_gpio >= 0 &&
+               d->sda_gpio != d->scl_gpio;
+    case BUS_SPI:
+        return d->sck_gpio >= 0 && d->cs_gpio >= 0 &&
+               d->sck_gpio != d->cs_gpio;
+    }
+    return false;
+}
+
+size_t bus_desc_gpios(const bus_desc_t *b, size_t nb, int8_t *out, size_t max)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < nb; i++)
+    {
+        int8_t pins[2];
+        size_t np = 0;
+        switch (b[i].type)
+        {
+        case BUS_UART:
+            pins[0] = b[i].rx_gpio;
+            np = 1;
+            break;
+        case BUS_I2C:
+            pins[0] = b[i].sda_gpio;
+            pins[1] = b[i].scl_gpio;
+            np = 2;
+            break;
+        case BUS_SPI:
+            pins[0] = b[i].sck_gpio;
+            pins[1] = b[i].cs_gpio;
+            np = 2;
+            break;
+        }
+        for (size_t k = 0; k < np; k++)
+        {
+            if (pins[k] < 0)
+            {
+                continue;
+            }
+            bool dup = false;
+            for (size_t j = 0; j < n; j++)
+            {
+                if (out[j] == pins[k])
+                {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup && n < max)
+            {
+                out[n++] = pins[k];
+            }
+        }
+    }
+    return n;
+}
+
 // ==== UART framing analysis ====
 
 // Line level at time t from edge history (idle-high before the first edge).

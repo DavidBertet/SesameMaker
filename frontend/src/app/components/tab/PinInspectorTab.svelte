@@ -10,7 +10,7 @@
     pinMeaning,
     busStatusMeta,
     busMeaning,
-  } from 'src/app/lib/gpio.js'
+  } from 'src/app/lib/inspector.js'
   import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import * as Card from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'
@@ -86,7 +86,7 @@
 </script>
 
 <SectionHeader
-  title="GPIO Live"
+  title="Pin Inspector"
   subtitle="Live pin levels plus on-demand bus framing checks — valid patterns, not payload content."
 />
 

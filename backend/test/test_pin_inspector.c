@@ -3,7 +3,7 @@
 // Host-side unit tests for the generic pin/bus inspector: payload builder +
 // framing analysis over synthetic edge waveforms.
 
-#include "../src/core/pin_inspector.h"
+#include "../src/core/inspector/pin_inspector.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -346,6 +346,49 @@ static int test_run_accumulate(void)
     return 0;
 }
 
+static int test_bus_desc_usable(void)
+{
+    bus_desc_t uart_ok = {.name = "WALLBUS", .type = BUS_UART, .rx_gpio = 16, .baud = 1200};
+    CHECK(bus_desc_usable(&uart_ok));
+    bus_desc_t uart_no_baud = {.name = "WALLBUS", .type = BUS_UART, .rx_gpio = 16, .baud = 0};
+    CHECK(!bus_desc_usable(&uart_no_baud));
+    bus_desc_t uart_no_pin = {.name = "WALLBUS", .type = BUS_UART, .rx_gpio = -1, .baud = 1200};
+    CHECK(!bus_desc_usable(&uart_no_pin));
+    bus_desc_t no_name = {.name = NULL, .type = BUS_UART, .rx_gpio = 16, .baud = 1200};
+    CHECK(!bus_desc_usable(&no_name));
+    bus_desc_t i2c_ok = {.name = "SENS", .type = BUS_I2C, .sda_gpio = 21, .scl_gpio = 22};
+    CHECK(bus_desc_usable(&i2c_ok));
+    bus_desc_t i2c_same = {.name = "SENS", .type = BUS_I2C, .sda_gpio = 21, .scl_gpio = 21};
+    CHECK(!bus_desc_usable(&i2c_same));
+    bus_desc_t spi_ok = {.name = "FLASH", .type = BUS_SPI, .sck_gpio = 18, .cs_gpio = 5};
+    CHECK(bus_desc_usable(&spi_ok));
+    bus_desc_t spi_same = {.name = "FLASH", .type = BUS_SPI, .sck_gpio = 18, .cs_gpio = 18};
+    CHECK(!bus_desc_usable(&spi_same));
+    return 0;
+}
+
+static int test_bus_desc_gpios(void)
+{
+    bus_desc_t buses[3] = {
+        {.name = "WALLBUS", .type = BUS_UART, .rx_gpio = 16},
+        {.name = "SENS", .type = BUS_I2C, .sda_gpio = 21, .scl_gpio = 22},
+        {.name = "AUX", .type = BUS_SPI, .sck_gpio = -1, .cs_gpio = 5},
+    };
+    int8_t out[8];
+    // A negative pin is skipped individually, the other line is still kept.
+    size_t n = bus_desc_gpios(buses, 3, out, 8);
+    CHECK(n == 4);
+    CHECK(out[0] == 16 && out[1] == 21 && out[2] == 22 && out[3] == 5);
+    bus_desc_t dup[2] = {
+        {.name = "A", .type = BUS_UART, .rx_gpio = 16},
+        {.name = "B", .type = BUS_UART, .rx_gpio = 16},
+    };
+    CHECK(bus_desc_gpios(dup, 2, out, 8) == 1);
+    CHECK(out[0] == 16);
+    CHECK(bus_desc_gpios(buses, 3, out, 2) == 2); // capped at max
+    return 0;
+}
+
 int main(void)
 {
     if (test_type_strings())
@@ -377,6 +420,10 @@ int main(void)
     if (test_bus_payload())
         return 1;
     if (test_run_accumulate())
+        return 1;
+    if (test_bus_desc_usable())
+        return 1;
+    if (test_bus_desc_gpios())
         return 1;
     printf("test_pin_inspector: all tests passed\n");
     return 0;

@@ -23,7 +23,8 @@
 //       are NEVER interpreted beyond the I2C address (framing, not app data).
 //
 // No ESP-IDF includes here so formatting + analysis stay host-testable; the
-// ISR capture and ADC/gpio sampling live in ws_pins.c.
+// ISR capture and ADC/gpio sampling live in bus_capture.c / pins_adc.c /
+// pins_sampler.c next to it in this folder.
 //
 // Wire payload: {"type":"gpio_state","pins":[...],"buses":[...]}:
 //   pins: digital -> level[,hit][,edges[,idle_ms]]; analog -> [raw,mv];
@@ -131,6 +132,14 @@ typedef size_t (*bus_provider_fn)(bus_desc_t *out, size_t max);
 void pin_inspector_set_bus_provider(bus_provider_fn fn);
 bus_provider_fn pin_inspector_get_bus_provider(void);
 const char *bus_type_str(bus_type_t t);
+
+// ---- Pure bus-table helpers (host-testable; used by the IDF capture session) ----
+
+// A bus entry is usable when its watched lines are declared (and distinct).
+bool bus_desc_usable(const bus_desc_t *d);
+// Collect the watched gpios of bus entries (deduped, negative pins skipped).
+// Returns the count.
+size_t bus_desc_gpios(const bus_desc_t *b, size_t nb, int8_t *out, size_t max);
 
 // Captured edge: level AFTER the transition. Timestamps are µs (uint32 wraps
 // every ~71 min; compare with bus_dt_us).

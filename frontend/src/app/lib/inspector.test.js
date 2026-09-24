@@ -1,9 +1,9 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
-import { pinTypeLabel, pinLevelText, pinMeaning, fmtAge } from './gpio.js'
-import { busStatusMeta, formatI2cAddr, busMeaning } from './gpio.js'
+import { pinTypeLabel, pinLevelText, pinMeaning, fmtAge } from './inspector.js'
 
+import { busStatusMeta, formatI2cAddr, busMeaning } from './inspector.js'
 test('pinTypeLabel covers every inspector type', () => {
   assert.equal(pinTypeLabel('digital'), 'DIGITAL')
   assert.equal(pinTypeLabel('analog'), 'ANALOG')

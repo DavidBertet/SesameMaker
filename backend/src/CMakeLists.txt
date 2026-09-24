@@ -12,7 +12,7 @@ FILE(GLOB_RECURSE app_sources
 idf_component_register(
   SRCS
   ${app_sources}
-  INCLUDE_DIRS "core" "app"
+  INCLUDE_DIRS "core" "core/inspector" "app"
   REQUIRES console spiffs log esp_hw_support esp_driver_uart esp_driver_gpio esp_adc
   # Resolved by the IDF component manager from src/idf_component.yml into
   # managed_components/ (gitignored); empty on targets without ZB_ENABLED,

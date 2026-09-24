@@ -3,7 +3,7 @@
 <script>
   import SystemTab from 'src/core/components/tab/SystemTab.svelte'
   import DoorTab from 'src/app/components/tab/DoorTab.svelte'
-  import GpioTab from 'src/app/components/tab/GpioTab.svelte'
+  import PinInspectorTab from 'src/app/components/tab/PinInspectorTab.svelte'
   import ProtocolTab from 'src/app/components/tab/ProtocolTab.svelte'
   import WifiTab from 'src/core/components/tab/WifiTab.svelte'
   import DeviceTab from 'src/components/tab/DeviceTab.svelte'
@@ -123,10 +123,10 @@
       component: SystemTab,
     },
     {
-      id: 'gpio',
-      label: 'GPIO Live',
+      id: 'inspector',
+      label: 'Pin Inspector',
       icon: Cpu,
-      component: GpioTab,
+      component: PinInspectorTab,
     },
   ]
 
