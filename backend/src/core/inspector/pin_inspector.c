@@ -167,6 +167,22 @@ size_t bus_desc_gpios(const bus_desc_t *b, size_t nb, int8_t *out, size_t max)
     return n;
 }
 
+size_t bus_ring_consume(uint32_t head, uint32_t *tail, size_t cap,
+                        uint32_t *lost_out)
+{
+    uint32_t pending = head - *tail;
+    uint32_t lost = (pending > cap) ? pending - (uint32_t)cap : 0;
+    if (lost)
+    {
+        *tail = head - (uint32_t)cap;
+    }
+    if (lost_out)
+    {
+        *lost_out = lost;
+    }
+    return (size_t)(pending - lost);
+}
+
 // ==== UART framing analysis ====
 
 // Line level at time t from edge history (idle-high before the first edge).

@@ -141,6 +141,15 @@ bool bus_desc_usable(const bus_desc_t *d);
 // Returns the count.
 size_t bus_desc_gpios(const bus_desc_t *b, size_t nb, int8_t *out, size_t max);
 
+// ---- ISR edge-ring window (host-testable) ----
+
+// Claim the pending window [tail, head) for analysis, capped at cap entries.
+// Entries the writer overwrote (lapped) are counted in lost_out and skipped
+// by advancing tail. All arithmetic is wrap-safe (uint32 subtraction).
+// Returns the entry count to copy (0..cap).
+size_t bus_ring_consume(uint32_t head, uint32_t *tail, size_t cap,
+                        uint32_t *lost_out);
+
 // Captured edge: level AFTER the transition. Timestamps are µs (uint32 wraps
 // every ~71 min; compare with bus_dt_us).
 typedef struct

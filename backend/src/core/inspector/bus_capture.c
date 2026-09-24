@@ -23,6 +23,11 @@ typedef struct
 } cap_edge_t;
 
 static cap_edge_t s_cap[BUS_CAP_LEN];
+// Ring protocol: the ISR owns s_cap_head (volatile, single 32-bit stores —
+// atomic on this single-core target); the handler task owns s_cap_tail and
+// any window it claimed (never touched by the ISR). The ISR can still lap a
+// claimed window mid-copy, so the copy is revalidated against a fresh head
+// read (see bus_capture_poll) instead of disabling interrupts around it.
 static volatile uint32_t s_cap_head; // ISR writer
 static uint32_t s_cap_tail;          // handler-task reader
 static bool s_isr_service;
@@ -31,6 +36,11 @@ static bus_run_t s_runs[BUS_INSPECTOR_MAX];
 static size_t s_nruns;
 static bool s_capture_active;
 static uint32_t s_capture_deadline_ms;
+// Static copy buffer: BUS_CAP_LEN entries (16 KB) can never live on the
+// 4 KB httpd stack, and a per-poll malloc churns the heap every 2 s.
+static bus_edge_t s_ev[BUS_CAP_LEN];
+static uint32_t s_cap_dropped; // edges lost to ring overruns, lifetime total
+static uint32_t s_drop_log_ms; // last overrun warning (0 = never)
 
 static uint32_t now_ms(void)
 {
@@ -172,6 +182,18 @@ void bus_capture_tick(uint32_t now)
     }
 }
 
+static void note_dropped(uint32_t now_ms, uint32_t lost)
+{
+    s_cap_dropped += lost;
+    // Throttled: an ISR storm overruns on every poll; the total is cumulative.
+    if (s_drop_log_ms == 0 || (int32_t)(now_ms - s_drop_log_ms) >= 10000)
+    {
+        ESP_LOGW(TAG, "capture overrun: %lu edges dropped total",
+                 (unsigned long)s_cap_dropped);
+        s_drop_log_ms = now_ms;
+    }
+}
+
 // Analyze one bus over the captured window, folding deltas into its runtime.
 static void analyze_bus(const bus_desc_t *d, bus_run_t *run,
                         const bus_edge_t *ev, size_t nev, uint32_t now)
@@ -217,36 +239,44 @@ void bus_capture_poll(const bus_desc_t *bdescs, size_t nb, uint32_t now_ms)
         memset(s_runs, 0, sizeof(s_runs));
         s_nruns = nb;
     }
-    uint32_t head = s_cap_head;
-    if (head - s_cap_tail > BUS_CAP_LEN)
+    // Claim the pending window; overwritten entries are dropped, counted.
+    uint32_t lost = 0;
+    size_t nev = bus_ring_consume(s_cap_head, &s_cap_tail, BUS_CAP_LEN, &lost);
+    if (lost)
     {
-        s_cap_tail = head - BUS_CAP_LEN; // overflow: drop oldest
+        note_dropped(now_ms, lost);
     }
-    size_t nev = (size_t)(head - s_cap_tail);
-    bus_edge_t *ev = NULL;
-    if (nev > 0)
+    for (size_t i = 0; i < nev; i++)
     {
-        ev = malloc(nev * sizeof(*ev));
+        cap_edge_t *c = &s_cap[(s_cap_tail + i) % BUS_CAP_LEN];
+        s_ev[i].gpio = c->gpio;
+        s_ev[i].level = c->level;
+        s_ev[i].t_us = c->t_us;
     }
-    if (nev == 0 || ev)
+    // The ISR may have lapped the claimed window mid-copy: overwritten slots
+    // read back as newer edges, silently corrupting framing. Drop the torn
+    // batch wholesale and resync past the storm.
+    if (s_cap_head - s_cap_tail > BUS_CAP_LEN)
     {
-        for (size_t i = 0; i < nev; i++)
-        {
-            cap_edge_t *c = &s_cap[(s_cap_tail + i) % BUS_CAP_LEN];
-            ev[i].gpio = c->gpio;
-            ev[i].level = c->level;
-            ev[i].t_us = c->t_us;
-        }
-        for (size_t b = 0; b < nb; b++)
-        {
-            analyze_bus(&bdescs[b], &s_runs[b], ev, nev, now_ms);
-        }
-        free(ev);
-        s_cap_tail = head;
+        uint32_t pending = s_cap_head - s_cap_tail;
+        note_dropped(now_ms, pending);
+        s_cap_tail = s_cap_head;
+        return;
     }
+    for (size_t b = 0; b < nb; b++)
+    {
+        analyze_bus(&bdescs[b], &s_runs[b], s_ev, nev, now_ms);
+    }
+    // == pre-copy head: edges that landed mid-copy stay pending for next poll.
+    s_cap_tail = s_cap_tail + (uint32_t)nev;
 }
 
 const bus_run_t *bus_capture_runs(void)
 {
     return s_runs;
+}
+
+uint32_t bus_capture_dropped(void)
+{
+    return s_cap_dropped;
 }

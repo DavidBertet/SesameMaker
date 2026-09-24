@@ -389,6 +389,37 @@ static int test_bus_desc_gpios(void)
     return 0;
 }
 
+static int test_bus_ring_consume(void)
+{
+    uint32_t tail, lost;
+    // No overrun: claims everything, tail untouched.
+    tail = 100;
+    lost = 99;
+    CHECK(bus_ring_consume(110, &tail, 2048, &lost) == 10);
+    CHECK(tail == 100 && lost == 0);
+    // Empty window.
+    tail = 50;
+    CHECK(bus_ring_consume(50, &tail, 2048, &lost) == 0);
+    CHECK(tail == 50 && lost == 0);
+    // Overrun: oldest entries dropped, tail advanced to head - cap.
+    tail = 0;
+    CHECK(bus_ring_consume(3000, &tail, 2048, &lost) == 2048);
+    CHECK(tail == 952 && lost == 952);
+    // Wrap-safe: head wrapped past zero (pending = 0x110).
+    tail = 0xFFFFFFF0u;
+    CHECK(bus_ring_consume(0x100u, &tail, 2048, &lost) == 0x110u);
+    CHECK(tail == 0xFFFFFFF0u && lost == 0);
+    // Wrap-safe overrun across zero.
+    tail = 0xFFFFFF00u;
+    CHECK(bus_ring_consume(0x900u, &tail, 2048, &lost) == 2048);
+    CHECK(lost == (0x900u - 0xFFFFFF00u) - 2048);
+    CHECK(tail == 0x900u - 2048);
+    // NULL lost_out.
+    tail = 0;
+    CHECK(bus_ring_consume(10, &tail, 2048, NULL) == 10);
+    return 0;
+}
+
 int main(void)
 {
     if (test_type_strings())
@@ -424,6 +455,8 @@ int main(void)
     if (test_bus_desc_usable())
         return 1;
     if (test_bus_desc_gpios())
+        return 1;
+    if (test_bus_ring_consume())
         return 1;
     printf("test_pin_inspector: all tests passed\n");
     return 0;

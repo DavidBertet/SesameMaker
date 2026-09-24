@@ -35,11 +35,17 @@ size_t bus_capture_table(bus_desc_t *out, size_t max);
 // Fold the edges captured since the last poll into the session runs.
 // No-op when no session is active. Runtime totals are indexed by bus-table
 // position, so providers must return entries in stable order across calls;
-// a changed table size restarts the totals.
+// a changed table size restarts the totals. Ring overruns (writer lapped
+// the ring, or lapped the claimed window mid-copy) are counted in
+// bus_capture_dropped() and the torn batch is skipped, never analyzed.
 void bus_capture_poll(const bus_desc_t *bdescs, size_t nb, uint32_t now_ms);
 
 // Session runs, parallel to the last polled table (count = last table size).
 const bus_run_t *bus_capture_runs(void);
+
+// Lifetime total of edges lost to ring overruns. Warned on via ESP_LOGW
+// (throttled); polled for tests and future status reporting.
+uint32_t bus_capture_dropped(void);
 
 // Deadline watchdog: stop a session nobody closes. Called from the sampler
 // task (see pins_sampler.h) with the current time in ms.
