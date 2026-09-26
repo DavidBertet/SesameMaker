@@ -570,7 +570,7 @@ let systemInfo = {
     uptime: '5 minutes, 42seconds',
     time: new Date().toLocaleString('en-US'),
   },
-  system: { idf_version: '5.4.0', freertos_tasks: 12 },
+  system: { idf_version: '5.4.0', fw_version: 'dev', fw_git_sha: 'unknown', freertos_tasks: 12 },
   hardware: {
     chip_model: 'ESP32',
     chip_revision: 301,

@@ -51,3 +51,37 @@ test('reportBuildFailure exits and hints fix for corrupted managed_components', 
   assert.match(output, /rm -rf/)
   assert.match(output, /Build failed after 1m0s/)
 })
+
+test('firmwareVersionEnv reads version and sha from git', async () => {
+  const origExec = require('./system').execPromise
+  const seen = []
+  require('./system').execPromise = async (cmd) => {
+    seen.push(cmd)
+    if (cmd.startsWith('git describe')) return { stdout: 'v1.2.3-4-gabc1234-dirty\n' }
+    if (cmd.startsWith('git rev-parse')) return { stdout: 'abc1234\n' }
+    throw new Error(`unexpected: ${cmd}`)
+  }
+  try {
+    const { firmwareVersionEnv } = loadPio()
+    assert.deepEqual(await firmwareVersionEnv(), {
+      FW_VERSION: 'v1.2.3-4-gabc1234-dirty',
+      FW_GIT_SHA: 'abc1234',
+    })
+    assert.equal(seen.length, 2)
+  } finally {
+    require('./system').execPromise = origExec
+  }
+})
+
+test('firmwareVersionEnv returns {} when git is unavailable', async () => {
+  const origExec = require('./system').execPromise
+  require('./system').execPromise = async () => {
+    throw new Error('git failed')
+  }
+  try {
+    const { firmwareVersionEnv } = loadPio()
+    assert.deepEqual(await firmwareVersionEnv(), {})
+  } finally {
+    require('./system').execPromise = origExec
+  }
+})

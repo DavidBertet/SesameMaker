@@ -4,6 +4,26 @@
 
 #include "websocket.h"
 
+// Baked at build time: platformio.ini passes FW_VERSION / FW_GIT_SHA env
+// through -D (exported by the CLI and CI from git). Empty on plain runs,
+// missing on non-PIO builds — both fall back below, never blank on screen.
+#ifndef FW_VERSION
+#define FW_VERSION ""
+#endif
+#ifndef FW_GIT_SHA
+#define FW_GIT_SHA ""
+#endif
+
+static const char *fw_version(void)
+{
+    return FW_VERSION[0] ? FW_VERSION : "dev";
+}
+
+static const char *fw_git_sha(void)
+{
+    return FW_GIT_SHA[0] ? FW_GIT_SHA : "unknown";
+}
+
 #include "lwip/sockets.h"
 #include "errno.h"
 #include "esp_log.h"
@@ -431,6 +451,8 @@ void get_system_info(char *buffer, size_t buffer_size)
              "},"
              "\"system\": {"
              "\"idf_version\": \"%s\","
+             "\"fw_version\": \"%s\","
+             "\"fw_git_sha\": \"%s\","
              "\"freertos_tasks\": %d"
              "},"
              "\"hardware\": {"
@@ -466,6 +488,8 @@ void get_system_info(char *buffer, size_t buffer_size)
              time_str,
              // System section
              esp_get_idf_version(),
+             fw_version(),
+             fw_git_sha(),
              uxTaskGetNumberOfTasks(),
              // Hardware section
              chip_info.model == CHIP_ESP32

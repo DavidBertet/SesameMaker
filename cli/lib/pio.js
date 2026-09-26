@@ -184,18 +184,36 @@ function reportUploadFailure(error, what) {
   }
 }
 
+// Firmware identity baked via -D (platformio.ini passes FW_VERSION /
+// FW_GIT_SHA env through). Best-effort git read; missing values stay unset
+// and the firmware reports dev/unknown.
+async function firmwareVersionEnv() {
+  try {
+    const { stdout: version } = await execPromise('git describe --tags --always --dirty')
+    const { stdout: sha } = await execPromise('git rev-parse --short HEAD')
+    return { FW_VERSION: version.trim(), FW_GIT_SHA: sha.trim() }
+  } catch {
+    return {}
+  }
+}
+
+async function pioEnv() {
+  return { ...process.env, ...(await firmwareVersionEnv()) }
+}
+
 // Stream raw pio output (debug) or spinner + progress parsing (normal).
 async function runUpload({ args, label, target, spinner, doneMessage }) {
   const backendPath = path.resolve('backend')
   const pioCmd = await findPIOExecutable()
   const portArg = args.serialPort ? ` --upload-port "${args.serialPort}"` : ''
   const command = `"${pioCmd}" run -t ${target}${portArg}`
+  const env = await pioEnv()
 
   if (args.debug) {
     logger.debug(`Command: ${command}`)
     console.log(colors.dim + `--- pio ${target} output (debug) ---` + colors.reset)
     try {
-      await execWithOutput(command, { cwd: backendPath }, (line) => {
+      await execWithOutput(command, { cwd: backendPath, env }, (line) => {
         process.stdout.write(colors.dim + line + colors.reset + '\n')
       })
     } catch (error) {
@@ -208,7 +226,9 @@ async function runUpload({ args, label, target, spinner, doneMessage }) {
 
   spinner.start()
   try {
-    await execWithOutput(command, { cwd: backendPath }, (line) => managePIONewLine(line, spinner))
+    await execWithOutput(command, { cwd: backendPath, env }, (line) =>
+      managePIONewLine(line, spinner),
+    )
     spinner.stop(true, doneMessage)
   } catch (error) {
     spinner.stop(false, `${label} failed`)
@@ -273,6 +293,7 @@ async function buildBackendPIO(args = {}) {
   const backendPath = path.resolve('backend')
   const pioCmd = await findPIOExecutable()
   const command = `"${pioCmd}" run`
+  const env = await pioEnv()
 
   logger.debug(`Command: ${command}`)
   logger.debug(`Working directory: ${backendPath}`)
@@ -283,7 +304,7 @@ async function buildBackendPIO(args = {}) {
     // Debug mode: stream all compiler/cmake output live
     console.log(colors.dim + '--- pio output (debug) ---' + colors.reset)
     try {
-      await execWithOutput(command, { cwd: backendPath }, (line) => {
+      await execWithOutput(command, { cwd: backendPath, env }, (line) => {
         process.stdout.write(colors.dim + line + colors.reset + '\n')
       })
     } catch (error) {
@@ -297,7 +318,7 @@ async function buildBackendPIO(args = {}) {
     buildSpinner.start()
 
     try {
-      await execPromise(command, { cwd: backendPath })
+      await execPromise(command, { cwd: backendPath, env })
       buildSpinner.stop(
         true,
         `Firmware built successfully (${formatDuration(Date.now() - startTime)})\n`,
@@ -342,4 +363,5 @@ module.exports = {
   buildBackendPIO,
   formatDuration,
   reportBuildFailure,
+  firmwareVersionEnv,
 }

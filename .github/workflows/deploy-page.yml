@@ -97,6 +97,11 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
+      - name: Firmware version
+        run: |
+          echo "FW_VERSION=$(git describe --tags --always --dirty)" >> $GITHUB_ENV
+          echo "FW_GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
       - name: Build firmware
         run: pio run -e sesame
         working-directory: ./backend
