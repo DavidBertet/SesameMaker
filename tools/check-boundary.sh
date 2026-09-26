@@ -10,7 +10,7 @@ set -e
 cd "$(dirname "$0")/.."
 fail=0
 echo "--- backend: core must not include app headers"
-violations=$(for f in backend/src/core/*.[ch]; do
+violations=$(find backend/src/core -name '*.[ch]' | while read -r f; do
   grep -o '#include "[^"]*"' "$f" | sed 's/#include "//;s/"//' | while read -r inc; do
     if [ -f "backend/src/app/$inc" ]; then
       echo "$f -> $inc"
