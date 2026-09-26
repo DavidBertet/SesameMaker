@@ -8,16 +8,18 @@
 // configuration.yaml) as sesamemaker.js then restart z2m and re-interview the device.
 //
 // Endpoint-aware: the opener only builds the endpoints its protocol drives
-// (secplus1: door + light + lock_remotes; dry-contact: door only), and this
-// converter mirrors exactly the interviewed endpoints - no stale entities
-// after a protocol switch, just re-interview (or re-pair) in z2m.
+// (secplus1: door + light + lock_remotes + obstruction; dry-contact: door
+// only), and this converter mirrors exactly the interviewed endpoints - no
+// stale entities after a protocol switch, just re-interview (or re-pair)
+// in z2m.
 const exposes = require('zigbee-herdsman-converters/lib/exposes')
 const reporting = require('zigbee-herdsman-converters/lib/reporting')
 
 const e = exposes.presets
 
 // Endpoint IDs must match ZB_EP_* in backend/src/app/zigbee_garage.c.
-const EP = { door: 10, light: 11, lock_remotes: 12 }
+// obstruction is report-only (the device ignores writes to it).
+const EP = { door: 10, light: 11, lock_remotes: 12, obstruction: 13 }
 
 // Door state driven by the genOnOff cluster on endpoint 10:
 // ON = open, OFF = closed. Reports OPEN/CLOSE like the switch exposes below.
@@ -41,10 +43,10 @@ const fzSwitch = (epId) => ({
   },
 })
 
-// Single state setter for every endpoint, switched by endpoint name: the
-// door speaks OPEN/CLOSE, light + lock_remotes speak ON/OFF. Anything else
-// returns undefined (a switch UI can never send STOP; manual publishes of
-// it are ignored — there is no halt to back it).
+// Single state setter for every settable endpoint, switched by endpoint
+// name: the door speaks OPEN/CLOSE, light + lock_remotes speak ON/OFF.
+// Anything else (obstruction reports, unknown names, manual STOP publishes)
+// returns undefined — there is no halt to back it and nothing else to drive.
 const tzState = {
   key: ['state'],
   convertSet: async (entity, key, value, meta) => {
@@ -55,12 +57,13 @@ const tzState = {
       await endpoint.command('genOnOff', value === 'OPEN' ? 'on' : 'off', {}, {})
       return { state: value }
     }
-    const epId = EP[name]
-    if (epId === undefined) return
-    if (value !== 'ON' && value !== 'OFF') return
-    const endpoint = entity.getDevice().getEndpoint(epId)
-    await endpoint.command('genOnOff', value === 'ON' ? 'on' : 'off', {}, {})
-    return { state: value }
+    if (name === 'light' || name === 'lock_remotes') {
+      if (value !== 'ON' && value !== 'OFF') return
+      const endpoint = entity.getDevice().getEndpoint(EP[name])
+      await endpoint.command('genOnOff', value === 'ON' ? 'on' : 'off', {}, {})
+      return { state: value }
+    }
+    return
   },
 }
 
@@ -83,6 +86,7 @@ module.exports = [
       const endpoints = { door: EP.door }
       if (device.getEndpoint(EP.light)) endpoints.light = EP.light
       if (device.getEndpoint(EP.lock_remotes)) endpoints.lock_remotes = EP.lock_remotes
+      if (device.getEndpoint(EP.obstruction)) endpoints.obstruction = EP.obstruction
       return endpoints
     },
     exposes: (device) => {
@@ -96,9 +100,11 @@ module.exports = [
       if (has(EP.light)) list.push(e.switch().withEndpoint('light').withDescription('Opener lamp'))
       if (has(EP.lock_remotes))
         list.push(e.switch().withEndpoint('lock_remotes').withDescription('Lock remotes (ON = remotes disabled)'))
+      if (has(EP.obstruction))
+        list.push(e.switch().withEndpoint('obstruction').withDescription('Obstruction sensor (ON = obstructed, read-only)'))
       return list
     },
-    fromZigbee: [fzDoorSwitch, fzSwitch(EP.light), fzSwitch(EP.lock_remotes)],
+    fromZigbee: [fzDoorSwitch, fzSwitch(EP.light), fzSwitch(EP.lock_remotes), fzSwitch(EP.obstruction)],
     toZigbee: [tzState],
     configure: [configure],
   },

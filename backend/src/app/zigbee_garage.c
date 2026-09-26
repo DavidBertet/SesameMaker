@@ -24,13 +24,16 @@ static const char *TAG = "ZIGBEE_GARAGE";
 
 // One endpoint per function so hubs map each to the right entity, all as
 // plain switches: door = On/Off Output (on = open), light = On/Off Light,
-// remote lockout = On/Off Output (on = remotes disabled). Light/lock only
-// exist when the active protocol drives them (dry-contact has neither).
-// IDs are mirrored in tools/sesamemaker-z2m.js (EP) — the parity test in
+// remote lockout = On/Off Output (on = remotes disabled), obstruction =
+// On/Off Output (on = obstructed, report-only: writes are ignored).
+// Light/lock/obstruction only exist when the active protocol drives them
+// (dry-contact has none of those). IDs are mirrored in
+// tools/sesamemaker-z2m.js (EP) — the parity test in
 // tools/sesamemaker-z2m.test.cjs enforces it, change both sides together.
 #define ZB_EP_DOOR 10
 #define ZB_EP_LIGHT 11
 #define ZB_EP_LOCK 12
+#define ZB_EP_OBSTRUCTION 13
 
 // Length-prefixed ZCL strings. The length byte is a separate literal:
 // "\x0bD..." would parse as \xBD (D is a hex digit), corrupting the attr.
@@ -49,7 +52,9 @@ static size_t garage_build_table(zb_endpoint_desc_t *out, size_t max)
     out[n++] = (zb_endpoint_desc_t){ZB_EP_LIGHT, EZB_ZHA_ON_OFF_LIGHT_DEVICE_ID};
   if (caps.lock && n < max)
     out[n++] = (zb_endpoint_desc_t){ZB_EP_LOCK, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID};
-  ESP_LOGI(TAG, "Endpoints: door=10 light=%d lock=%d", (int)caps.light, (int)caps.lock);
+  if (caps.obstruction && n < max)
+    out[n++] = (zb_endpoint_desc_t){ZB_EP_OBSTRUCTION, EZB_ZHA_ON_OFF_OUTPUT_DEVICE_ID};
+  ESP_LOGI(TAG, "Endpoints: door=10 light=%d lock=%d obstruction=%d", (int)caps.light, (int)caps.lock, (int)caps.obstruction);
   return n;
 }
 
@@ -76,6 +81,12 @@ static void garage_on_attr_write(uint8_t ep, uint16_t cluster_id,
   {
     ESP_LOGI(TAG, "Remotes %s", on ? "locked out" : "enabled");
     garage_controller_lock_action(on ? "lock" : "unlock");
+  }
+  else if (ep == ZB_EP_OBSTRUCTION)
+  {
+    // Report-only sensor: nothing to drive, a write just bounces back on
+    // the next report.
+    ESP_LOGW(TAG, "Obstruction is report-only, write ignored");
   }
   else
   {
@@ -110,6 +121,7 @@ static void garage_report_state(void)
     garage_report_bool(ZB_EP_LOCK, true);
   else if (st.lock_state == GARAGE_LOCK_UNLOCKED)
     garage_report_bool(ZB_EP_LOCK, false);
+  garage_report_bool(ZB_EP_OBSTRUCTION, st.obstruction);
 }
 
 void zigbee_garage_register(void)

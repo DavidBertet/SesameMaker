@@ -59,21 +59,21 @@ const ep = (ID) => ({
   getDevice: () => device,
 })
 
-let present = new Set([10, 11, 12])
+let present = new Set([10, 11, 12, 13])
 const device = { getEndpoint: (id) => (present.has(id) ? ep(id) : undefined) }
 
 const msg = (ID, onOff) => ({ endpoint: { ID }, data: { onOff } })
 
 test('endpoint map follows interviewed endpoints', () => {
-  present = new Set([10, 11, 12])
-  assert.deepEqual(def.endpoint(device), { door: 10, light: 11, lock_remotes: 12 })
+  present = new Set([10, 11, 12, 13])
+  assert.deepEqual(def.endpoint(device), { door: 10, light: 11, lock_remotes: 12, obstruction: 13 })
   present = new Set([10])
   assert.deepEqual(def.endpoint(device), { door: 10 })
 })
 
 test('exposes shrink to interviewed endpoints (dry-contact: switch only)', () => {
-  present = new Set([10, 11, 12])
-  assert.equal(def.exposes(device).length, 3)
+  present = new Set([10, 11, 12, 13])
+  assert.equal(def.exposes(device).length, 4)
   present = new Set([10])
   const list = def.exposes(device)
   assert.equal(list.length, 1)
@@ -87,7 +87,7 @@ test('exposes shrink to interviewed endpoints (dry-contact: switch only)', () =>
 })
 
 test('fromZigbee routes by endpoint id', () => {
-  const [door, light, lock] = def.fromZigbee
+  const [door, light, lock, obstruction] = def.fromZigbee
   assert.deepEqual(door.convert(null, msg(10, 1)), { state: 'OPEN' })
   assert.deepEqual(door.convert(null, msg(10, 0)), { state: 'CLOSE' })
   assert.equal(door.convert(null, msg(11, 1)), undefined)
@@ -95,11 +95,14 @@ test('fromZigbee routes by endpoint id', () => {
   assert.equal(light.convert(null, msg(12, 1)), undefined)
   assert.deepEqual(lock.convert(null, msg(12, 0)), { state: 'OFF' })
   assert.equal(lock.convert(null, msg(10, 1)), undefined)
+  assert.deepEqual(obstruction.convert(null, msg(13, 1)), { state: 'ON' })
+  assert.deepEqual(obstruction.convert(null, msg(13, 0)), { state: 'OFF' })
+  assert.equal(obstruction.convert(null, msg(12, 1)), undefined)
   assert.equal(door.convert(null, { endpoint: { ID: 10 }, data: {} }), undefined)
 })
 
 test('toZigbee routes by endpoint name in one converter', async () => {
-  present = new Set([10, 11, 12])
+  present = new Set([10, 11, 12, 13])
   const [tz] = def.toZigbee
   calls.commands.length = 0
   // door (default + named): OPEN/CLOSE only, STOP is a no-op
@@ -116,16 +119,19 @@ test('toZigbee routes by endpoint name in one converter', async () => {
   assert.deepEqual(calls.commands.at(-1), [11, 'genOnOff', 'off'])
   assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'OPEN', { endpoint_name: 'light' }), undefined)
   assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'bogus' }), undefined)
+  // obstruction is report-only: writes are ignored, never commanded
+  assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'ON', { endpoint_name: 'obstruction' }), undefined)
+  assert.equal(await tz.convertSet({ getDevice: () => device }, 'state', 'OFF', { endpoint_name: 'obstruction' }), undefined)
   assert.equal(calls.commands.length, 4)
 })
 
 test('configure binds + reports only present endpoints', async () => {
-  present = new Set([10, 12])
+  present = new Set([10, 12, 13])
   calls.bind.length = 0
   calls.onOff.length = 0
   await def.configure[0](device, {})
-  assert.deepEqual(calls.bind, [10, 12])
-  assert.deepEqual(calls.onOff, [10, 12])
+  assert.deepEqual(calls.bind, [10, 12, 13])
+  assert.deepEqual(calls.onOff, [10, 12, 13])
 })
 
 test('endpoint IDs match ZB_EP_* in zigbee_garage.c', () => {
@@ -142,6 +148,7 @@ test('endpoint IDs match ZB_EP_* in zigbee_garage.c', () => {
     ['door', 'ZB_EP_DOOR'],
     ['light', 'ZB_EP_LIGHT'],
     ['lock_remotes', 'ZB_EP_LOCK'],
+    ['obstruction', 'ZB_EP_OBSTRUCTION'],
   ]) {
     assert.equal(jsId(js), cId(c), `${js} must equal ${c}`)
   }
