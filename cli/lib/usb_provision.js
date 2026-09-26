@@ -16,19 +16,38 @@ function isInteractive() {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY)
 }
 
+// The device reboots after flashing and may still be booting (or the port
+// briefly busy after esptool lets go), so retry the first contact instead
+// of one-shotting it. Returns the password string, '' when open, or null
+// when the device never answers (old firmware without Improv).
+async function readDeviceOtaPassword(port, improv, { attempts = 8, retryMs = 2000 } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await improv.getOtaPassword(port, { timeoutMs: 2500 })
+    } catch (error) {
+      if (attempt === attempts) {
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryMs))
+    }
+  }
+  return null // unreachable: last attempt throws
+}
+
 // The OTA password on the device after this step. Explicit flag wins;
 // otherwise keep the device's (even when open); generate + send one when
 // the device has none. Always returns the effective value.
-async function resolveDeviceOtaPassword(port, uploadPassword, deps) {
-  const { getOtaPassword, setOtaPassword } = deps.improv
+async function resolveDeviceOtaPassword(port, uploadPassword, deps, retry) {
+  const { setOtaPassword } = deps.improv
   const { generateOtaPassword } = deps.password
   const spinner = new Spinner('Reading device OTA password...')
   spinner.start()
   let devicePw = null
   try {
-    devicePw = await getOtaPassword(port)
+    devicePw = await readDeviceOtaPassword(port, deps.improv, retry)
   } catch (error) {
-    spinner.stop(false, 'Device did not answer (old firmware without Improv?)')
+    spinner.stop(false, 'Device did not answer (not booted yet, or old firmware without Improv?)')
+    logger.debug(`OTA read failed: ${error.message}`)
     return null
   }
   spinner.stop(true, 'Device answered over USB')
@@ -48,7 +67,7 @@ async function resolveDeviceOtaPassword(port, uploadPassword, deps) {
   return generated
 }
 
-async function provisionOverUsb(args, { uploadPassword, backendUploaded } = {}, deps = {}) {
+async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry } = {}, deps = {}) {
   const improv = deps.improv || require('./improv')
   const prompt = deps.prompt || require('./prompt')
   const password = deps.password || require('./password')
@@ -57,10 +76,15 @@ async function provisionOverUsb(args, { uploadPassword, backendUploaded } = {}, 
     return null
   }
 
-  const otaPassword = await resolveDeviceOtaPassword(args.serialPort, uploadPassword, {
-    improv,
-    password,
-  })
+  const otaPassword = await resolveDeviceOtaPassword(
+    args.serialPort,
+    uploadPassword,
+    {
+      improv,
+      password,
+    },
+    retry,
+  )
   if (otaPassword === null) {
     return null
   }

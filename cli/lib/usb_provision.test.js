@@ -116,5 +116,37 @@ test('provisionOverUsb returns null when the device does not answer', async () =
       },
     },
   })
-  assert.equal(await provisionOverUsb({ serialPort: '/dev/x' }, { backendUploaded: true }, d), null)
+  assert.equal(
+    await provisionOverUsb(
+      { serialPort: '/dev/x' },
+      { backendUploaded: true, retry: { attempts: 2, retryMs: 1 } },
+      d,
+    ),
+    null,
+  )
+})
+
+test('provisionOverUsb waits out a rebooting device, then resolves', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  let calls = 0
+  const d = deps({
+    improv: {
+      getOtaPassword: async () => {
+        calls++
+        if (calls < 3) throw new Error('timed out')
+        return 'dev-pw'
+      },
+      setOtaPassword: async () => {},
+      provisionWifi: async (port, opts) => ({ ssid: opts.ssid, url: null }),
+    },
+    prompt: { askQuestion: async () => 'n', askPassword: async () => 'pw' },
+  })
+  const res = await provisionOverUsb(
+    { serialPort: '/dev/x' },
+    { backendUploaded: true, retry: { attempts: 5, retryMs: 1 } },
+    d,
+  )
+  assert.deepEqual(res, { ssid: null, url: null, otaPassword: 'dev-pw' })
+  assert.equal(calls, 3)
 })
