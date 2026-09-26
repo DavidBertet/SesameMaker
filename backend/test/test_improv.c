@@ -160,8 +160,7 @@ static void test_ota_password_parse(void)
 }
 
 static void test_result_payload(void)
-{
-    tests_run++;
+{    tests_run++;
     uint8_t out[64];
     const char *strs[] = {"SesameMaker", "dev", "esp32-c6", "SesameMaker"};
     size_t n = improv_result_payload(IMPROV_RPC_GET_INFO, strs, 4, out, sizeof(out));

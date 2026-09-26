@@ -52,6 +52,10 @@
 #define IMPROV_RPC_GET_NETSTATE 0x07
 // SesameMaker extension: set the OTA upload password.
 #define IMPROV_RPC_SET_OTA_PASSWORD 0x10
+// SesameMaker extension: read it back (USB-physical only; anyone holding
+// the cable could overwrite it or flash anything anyway, so reading adds
+// no capability — it lets install.sh print the effective password).
+#define IMPROV_RPC_GET_OTA_PASSWORD 0x11
 
 #define IMPROV_SSID_MAX 32
 #define IMPROV_PASS_MAX 64

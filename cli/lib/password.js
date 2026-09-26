@@ -1,9 +1,8 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-// OTA password handling. No files involved: explicit -p wins, otherwise
-// generate one for the session. Serial installs send it over USB
-// (usb_provision.js); OTA targets already carry whatever was provisioned
-// before, and the upload uses it for auth either way.
+// OTA password handling. No files involved: the effective value is resolved
+// per run (explicit -p, else the device's own over USB, else generated).
+// This module only mints random ones.
 
 const crypto = require('crypto')
 
@@ -14,11 +13,6 @@ function generateOtaPassword(length = 16) {
     .slice(0, length)
 }
 
-function resolveOtaPassword(providedPassword) {
-  return providedPassword || generateOtaPassword()
-}
-
 module.exports = {
   generateOtaPassword,
-  resolveOtaPassword,
 }

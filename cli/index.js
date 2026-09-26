@@ -9,7 +9,6 @@ const { buildFrontend } = require('./lib/frontend')
 const { buildBackendPIO } = require('./lib/pio')
 const { configureBackend } = require('./lib/backend')
 const { uploadToDevice } = require('./lib/upload')
-const { resolveOtaPassword } = require('./lib/password')
 const { provisionOverUsb } = require('./lib/usb_provision')
 const { waitForDeviceOnNetwork } = require('./lib/discover')
 const { Spinner } = require('./lib/spinner')
@@ -23,8 +22,11 @@ async function main() {
       logger.debug('Debug mode enabled')
     }
 
-    const otaPassword = resolveOtaPassword(args.uploadPassword)
-    args.uploadPassword = otaPassword
+    // OTA password: explicit flag, else whatever USB provisioning resolves
+    // (device's own, or freshly generated). OTA targets carry what was set
+    // before, so an empty flag means "try open".
+    args.uploadPassword = args.uploadPassword || ''
+    let otaPassword = args.uploadPassword
 
     await checkPrerequisites(args)
     if (!args.frontendOnly) {
@@ -41,9 +43,12 @@ async function main() {
     let provisioned = null
     if (!args.otaIP && finalResults.backendUploaded) {
       provisioned = await provisionOverUsb(args, {
-        otaPassword,
+        uploadPassword: args.uploadPassword,
         backendUploaded: finalResults.backendUploaded,
       })
+      if (provisioned && provisioned.otaPassword) {
+        otaPassword = provisioned.otaPassword
+      }
     }
 
     // Serial flash with WiFi: the device reboots, joins WiFi via DHCP under a

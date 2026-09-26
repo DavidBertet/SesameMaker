@@ -4,6 +4,7 @@
 
 #include "improv.h"
 #include "storage.h"
+#include "webfile.h"
 #include "wifi.h"
 
 #include "sdkconfig.h"
@@ -208,6 +209,13 @@ static void handle_rpc(const uint8_t *data, size_t len)
     case IMPROV_RPC_SET_OTA_PASSWORD:
         handle_set_ota_password(payload, plen);
         break;
+    case IMPROV_RPC_GET_OTA_PASSWORD: {
+        char current[65];
+        ota_password_get(current, sizeof(current));
+        send_result(IMPROV_RPC_GET_OTA_PASSWORD, (const char *[]){current}, current[0] ? 1 : 0);
+        memset(current, 0, sizeof(current));
+        break;
+    }
     default:
         // Covers unimplemented standard commands (scan, hostname, ...) as
         // well as unknown ones: stock clients fall back gracefully.

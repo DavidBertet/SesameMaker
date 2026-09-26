@@ -22,6 +22,7 @@ const RPC = {
   GET_STATE: 0x02,
   GET_INFO: 0x03,
   SET_OTA_PASSWORD: 0x10, // SesameMaker extension (see improv.h)
+  GET_OTA_PASSWORD: 0x11, // SesameMaker extension (read-back for install.sh)
 }
 
 const ERROR_NAMES = {
@@ -204,6 +205,77 @@ async function provisionWifi(
     port.removeListener('data', onData)
     await new Promise((resolve) => port.close(() => resolve()))
   }
+}
+
+// One request/response exchange: open, send one RPC, await its RESULT
+// (or ERROR), close. Returns the RESULT frame. Tolerant of log noise.
+async function exchangeRpc(portPath, cmd, payload, { timeoutMs = 5000 } = {}, serialLib = null) {
+  const { SerialPort } = serialLib || require('serialport')
+  const port = new SerialPort({ path: portPath, baudRate: 115200, autoOpen: false, hupcl: false })
+  let buf = Buffer.alloc(0)
+  const seen = []
+  const onData = (chunk) => {
+    buf = Buffer.concat([buf, Buffer.from(chunk)])
+    const { frames, rest } = parseFrames(buf)
+    buf = rest
+    seen.push(...frames)
+  }
+  await new Promise((resolve, reject) => port.open((err) => (err ? reject(err) : resolve())))
+  try {
+    await new Promise((resolve, reject) =>
+      port.write(rpcCommand(cmd, payload), (err) => (err ? reject(err) : resolve())),
+    )
+    port.on('data', onData)
+    return await waitFor(
+      () => {
+        const i = seen.findIndex((f) => f.type === TYPE.RESULT || f.type === TYPE.ERROR)
+        return i === -1 ? null : seen.splice(i, 1)[0]
+      },
+      timeoutMs,
+      'RPC result',
+    )
+  } finally {
+    port.removeListener('data', onData)
+    await new Promise((resolve) => port.close(() => resolve()))
+  }
+}
+
+function expectResult(frame, what) {
+  if (frame.type === TYPE.ERROR) {
+    const code = frame.data[0]
+    throw new Error(`${what} refused: ${ERROR_NAMES[code] || `code ${code}`}`)
+  }
+  return frame
+}
+
+// First string of a RESULT payload ([cmd][len][slen str]...), or ''.
+function firstResultString(frame) {
+  if (frame.data.length < 3) return ''
+  const slen = frame.data[2]
+  return frame.data.slice(3, 3 + slen).toString('utf8')
+}
+
+// Read the device's OTA password ('' = open). Null when the device doesn't
+// answer (old firmware without Improv).
+async function getOtaPassword(portPath, opts = {}, serialLib = null) {
+  try {
+    const frame = await exchangeRpc(portPath, RPC.GET_OTA_PASSWORD, [], opts, serialLib)
+    return firstResultString(expectResult(frame, 'read OTA password'))
+  } catch {
+    return null
+  }
+}
+
+// Set (or clear, with '') the device's OTA password. Throws on refusal.
+async function setOtaPassword(portPath, password, opts = {}, serialLib = null) {
+  const frame = await exchangeRpc(
+    portPath,
+    RPC.SET_OTA_PASSWORD,
+    otaPasswordPayload(password),
+    opts,
+    serialLib,
+  )
+  expectResult(frame, 'set OTA password')
 }
 
 module.exports = {
