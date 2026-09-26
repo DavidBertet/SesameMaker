@@ -6,6 +6,6 @@
 - NEVER read `backend/src/secrets.h`. It holds real credentials (WiFi,
   OTA password). You do not need its contents for any task: treat the
   `DEFAULT_WIFI_*` / `OTA_PASSWORD` placeholders in
-  `backend/src/constants.h` as the values. If debugging requires knowing
+  `backend/src/core/constants.h` as the values. If debugging requires knowing
   whether secrets exist, only check file presence via the shell
   (e.g. `test -f`), never `cat` / read its contents.

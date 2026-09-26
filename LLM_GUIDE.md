@@ -19,8 +19,8 @@
 
 ## Frontend
 
-- Add new tab in `frontend/src/components/tab`
-- You must take example on `frontend/src/components/tab/SystemTab.svelte` for the file structure
+- Add new tab in `frontend/src/app/components/tab` (shared tabs live in `frontend/src/core/components/tab`)
+- You must take example on `frontend/src/core/components/tab/SystemTab.svelte` for the file structure
 - A table must have a `SectionHeader` to expose tab context
 - Declare tab in `const tabs` on `frontend/src/App.svelte`. You must add it at the top
 
@@ -29,21 +29,21 @@
 ## Frontend
 
 - Mock: Add a case for `<endpoint>` in `generateMockResponse(data)` (`frontend/src/lib/mockdata.js`). Returns a list, even if one response
-  In any Svelte file, import `import { sendMessage, onMessageType } from 'src/lib/ws.svelte.js'`, then
+  In any Svelte file, import `import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'`, then
 - Send: `sendMessage({ type: '<endpoint>', ...payload });`
 - Listen: Use `onMessageType('<response_type>', callback)` to consume responses
 
 ## Backend
 
 - You can group related endpoints (ex: write/read) in the same file
-- Handler: Implement `void ws_handle_<endpoint>(const cJSON *root, int sockfd);` in `backend/src/ws_<endpoint_context>.c/.h`. Take example on `backend/src/ws_settings.c`
-- Register: Add `register_callback("<endpoint>", ws_handle_<endpoint>);` in `app_main()` (`backend/src/main.c`). Don't forget the include
+- Handler: Implement `void ws_handle_<endpoint>(const cJSON *root, int sockfd);` in `backend/src/app/ws_<endpoint_context>.c/.h` (shared endpoints go in `backend/src/core/`). Take example on `backend/src/core/ws_settings.c`
+- Register: Add `register_callback("<endpoint>", ws_handle_<endpoint>);` in `app_main()` (`backend/src/app/main.c`). Don't forget the include
 - Respond: Use `send_message_sockfd(char* json, sockfd);` (single user), `broadcast_message(char* json);` (all users), or `send_message_token(char* json, token);` (by token). Token is used to target a user from an http request.
 
 ## Example
 
 ```js
-import { sendMessage, onMessageType } from "src/lib/ws.svelte.js";
+import { sendMessage, onMessageType } from "src/core/lib/ws.svelte.js";
 // Send
 sendMessage({ type: "<endpoint>", ...payload });
 // Listen
@@ -56,12 +56,12 @@ const unsub = onMessageType("<response_type>", (data) => {
 
 | Step     | File(s)                                 | Action                                                       |
 | -------- | --------------------------------------- | ------------------------------------------------------------ |
-| Handler  | backend/src/ws\_<endpoint_context>.c/.h | ws*handle*<endpoint>(...)                                    |
-| Register | backend/src/main.c                      | register_callback(...)                                       |
-| Respond  | backend/src/websocket.c                 | send_message_sockfd / broadcast_message / send_message_token |
+| Handler  | backend/src/app/ws\_<endpoint_context>.c/.h (`core/` if shared) | ws*handle*<endpoint>(...) |
+| Register | backend/src/app/main.c                 | register_callback(...)                                       |
+| Respond  | backend/src/core/websocket.c            | send_message_sockfd / broadcast_message / send_message_token |
 | Mock     | frontend/src/lib/mockdata.js            | generateMockResponse                                         |
-| Send     | frontend/src/lib/ws.svelte.js           | sendMessage                                                  |
-| Listen   | frontend/src/lib/ws.svelte.js           | onMessageType                                                |
+| Send     | frontend/src/core/lib/ws.svelte.js      | sendMessage                                                  |
+| Listen   | frontend/src/core/lib/ws.svelte.js      | onMessageType                                                |
 
 # Deploying to the device
 
@@ -76,7 +76,7 @@ The agent may push changes to a device over OTA using `./install.sh` (put the us
 Flags:
 
 - `-o, --ota <IP>` - target device
-- `-p, --upload-password <PWD>` - OTA password (default `OTA_PASSWORD` in `backend/src/constants.h`)
+- `-p, --upload-password <PWD>` - OTA password (default `OTA_PASSWORD` in `backend/src/core/constants.h`)
 - `-y, --yes` - auto-confirm the upload prompts (required for non-interactive agent use)
 - `-b, --backend-only` / `-f, --frontend-only` - target a single component
 

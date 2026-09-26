@@ -8,7 +8,8 @@ This guide explains how to add a new WebSocket endpoint between the client and s
 
 ### a. Create the Handler Function
 
-- **File:** `backend/src/ws_<endpoint>.c` and `backend/src/ws_<endpoint>.h`
+- **File:** `backend/src/app/ws_<endpoint>.c` and `backend/src/app/ws_<endpoint>.h`
+  (`backend/src/core/` for shared endpoints)
 - **Function signature:**
   ```c
   void ws_handle_<endpoint>(const cJSON *root, int sockfd);
@@ -20,7 +21,7 @@ This guide explains how to add a new WebSocket endpoint between the client and s
 
 ### b. Expose the Handler
 
-- **File:** `backend/src/ws_<endpoint>.h`
+- **File:** `backend/src/app/ws_<endpoint>.h` (`backend/src/core/` for shared endpoints)
 - **Action:** Declare the handler:
   ```c
   void ws_handle_<endpoint>(const cJSON *root, int sockfd);
@@ -28,7 +29,7 @@ This guide explains how to add a new WebSocket endpoint between the client and s
 
 ### c. Register the Callback
 
-- **File:** `backend/src/main.c`
+- **File:** `backend/src/app/main.c`
 - **Action:**
   - Include "ws\_<endpoint>.h"
   - In `app_main()`, register your handler:
@@ -73,7 +74,7 @@ This guide explains how to add a new WebSocket endpoint between the client and s
 - **File:** Any Svelte component or JS module
 - **Action:**
   ```js
-  import { sendMessage } from 'src/lib/ws.svelte.js'
+  import { sendMessage } from 'src/core/lib/ws.svelte.js'
   sendMessage({ type: '<endpoint>', ...payload })
   ```
 
@@ -82,7 +83,7 @@ This guide explains how to add a new WebSocket endpoint between the client and s
 - **File:** Any Svelte component or JS module
 - **Action:**
   ```js
-  import { onMessageType } from 'src/lib/ws.svelte.js'
+  import { onMessageType } from 'src/core/lib/ws.svelte.js'
   const unsubscribe = onMessageType('<response_type>', (data) => {
     // handle response
   })
@@ -92,7 +93,7 @@ This guide explains how to add a new WebSocket endpoint between the client and s
 
 ```svelte
 <script>
-  import { sendMessage, onMessageType } from 'src/lib/ws.svelte.js';
+  import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js';
   let response = null;
   let unsub = $state(null)
 
