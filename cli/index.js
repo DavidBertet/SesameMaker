@@ -11,6 +11,7 @@ const { configureBackend } = require('./lib/backend')
 const { configureWifi } = require('./lib/wifi')
 const { uploadToDevice } = require('./lib/upload')
 const { resolveOtaPassword } = require('./lib/password')
+const { provisionOverUsb } = require('./lib/usb_provision')
 const { waitForDeviceOnNetwork } = require('./lib/discover')
 const { Spinner } = require('./lib/spinner')
 
@@ -38,16 +39,27 @@ async function main() {
     }
     const finalResults = await uploadToDevice(args)
 
+    // Serial flash: provision WiFi/OTA over USB straight into the running
+    // firmware (no build-time secrets), then find where it landed on WiFi.
+    let provisioned = null
+    if (!args.otaIP && finalResults.backendUploaded) {
+      provisioned = await provisionOverUsb(args, {
+        otaPassword,
+        backendUploaded: finalResults.backendUploaded,
+      })
+    }
+
     // Serial flash with WiFi: the device reboots, joins WiFi via DHCP under a
     // new unknown IP. Poll the network so we can print where it landed.
     let discoveredDevices = []
+    const joinSsid = (provisioned && provisioned.ssid) || (wifiConfig && wifiConfig.ssid)
     if (
       !args.otaIP &&
-      wifiConfig &&
+      joinSsid &&
       (finalResults.backendUploaded || finalResults.frontendUploaded)
     ) {
       const spinner = new Spinner(
-        `Waiting for device to join "${wifiConfig.ssid}" (up to ~60s)...`,
+        `Waiting for device to join "${joinSsid}" (up to ~60s)...`,
       )
       spinner.start()
       discoveredDevices = await waitForDeviceOnNetwork()

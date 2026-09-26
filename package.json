@@ -17,5 +17,8 @@
   },
   "devDependencies": {
     "prettier": "^3.0.0"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0"
   }
 }
