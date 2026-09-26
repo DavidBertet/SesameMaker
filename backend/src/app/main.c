@@ -30,6 +30,7 @@
 
 #include "garage_controller.h"
 #include "app_pins.h"
+#include "improv_serial.h"
 #include "homekit.h"
 #include "homekit_garage.h"
 #include "protocol_registry.h"
@@ -179,6 +180,10 @@ void app_main()
   zigbee_garage_register();
   ESP_ERROR_CHECK(zigbee_init());
   zigbee_button_init();
+
+  // USB-serial Improv Wi-Fi provisioning (ESP Web Tools + CLI). Runs its
+  // own task; needs nothing but the scheduler.
+  improv_serial_start();
 
   // HomeKit accessory. Content registers first so HAP startup picks it up;
   // the task waits for Wi-Fi itself.

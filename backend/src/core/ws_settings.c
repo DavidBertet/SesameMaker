@@ -2,6 +2,7 @@
 
 #include "ws_settings.h"
 
+#include "webfile.h"
 #include "websocket.h"
 
 // Baked at build time: platformio.ini passes FW_VERSION / FW_GIT_SHA env
@@ -71,7 +72,9 @@ void get_settings_info(char *buffer, size_t buffer_size)
 {
     bool isWifiConnected = is_wifi_connected();
     bool isWifiSetup = is_wifi_setup();
-    bool requiresOTAPassword = strlen(OTA_PASSWORD) != 0;
+    char ota_password[65];
+    ota_password_get(ota_password, sizeof(ota_password));
+    bool requiresOTAPassword = ota_password[0] != '\0';
     snprintf(buffer, buffer_size,
              "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"features\":{%s}}",
              requiresOTAPassword ? "true" : "false", isWifiConnected ? "true" : "false", isWifiSetup ? "true" : "false",

@@ -16,6 +16,7 @@
 #include "websocket.h"
 #include "webserver.h"
 #include "spiffs.h"
+#include "storage.h"
 #include "constants.h"
 
 #include <errno.h>
@@ -579,25 +580,41 @@ static esp_err_t upload_file_handler(httpd_req_t *req, const char *session_token
 }
 
 // Helper to check for passowrd
+void ota_password_get(char *buf, size_t len)
+{
+    if (len == 0)
+    {
+        return;
+    }
+    // NVS first (USB provisioning takes effect without a reboot), then the
+    // build default. Always NUL-terminated, empty means open.
+    if (read_str("ota_password", buf, len) != ESP_OK)
+    {
+        snprintf(buf, len, "%s", OTA_PASSWORD);
+    }
+}
+
 static bool check_password(httpd_req_t *req)
 {
-  // If no password is defined, allow access
-  if (strlen(OTA_PASSWORD) == 0)
-  {
-    return true;
-  }
-
-  char received_password[MAX_PASSWORD_LEN];
-
-  // Check for password in HTTP header
-  if (httpd_req_get_hdr_value_str(req, OTA_PASSWORD_HEADER, received_password, sizeof(received_password)) == ESP_OK)
-  {
-    if (strcmp(received_password, OTA_PASSWORD) == 0)
+    // If no password is defined, allow access
+    char expected[MAX_PASSWORD_LEN + 1];
+    ota_password_get(expected, sizeof(expected));
+    if (expected[0] == '\0')
     {
-      ESP_LOGI(TAG, "OTA password verified via header");
-      return true;
+        return true;
     }
-  }
+
+    char received_password[MAX_PASSWORD_LEN];
+
+    // Check for password in HTTP header
+    if (httpd_req_get_hdr_value_str(req, OTA_PASSWORD_HEADER, received_password, sizeof(received_password)) == ESP_OK)
+    {
+        if (strcmp(received_password, expected) == 0)
+        {
+            ESP_LOGI(TAG, "OTA password verified via header");
+            return true;
+        }
+    }
 
   ESP_LOGW(TAG, "Access denied: invalid or missing password");
   return false;

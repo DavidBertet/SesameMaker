@@ -51,3 +51,6 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_ap_window \
 cc -std=c11 -Wall -Wextra -o /tmp/test_event_routes \
     test_event_routes.c
 /tmp/test_event_routes
+cc -std=c11 -Wall -Wextra -o /tmp/test_improv \
+    test_improv.c ../src/core/improv.c
+/tmp/test_improv
