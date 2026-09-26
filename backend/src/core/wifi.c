@@ -93,8 +93,14 @@ static void ap_off_timer_callback(void *arg)
     {
         // Join/stop race: a station landed after the timer was armed.
         // Never kick them — re-arm and let the countdown resume on leave.
+        // No ESP_ERROR_CHECK here: this runs in esp_timer context, where an
+        // abort would crash the timer task; log and carry on instead.
         ESP_LOGI(TAG, "%d station(s) still on AP, keeping it until they leave", s_ap_stations);
-        ESP_ERROR_CHECK(esp_timer_start_once(s_ap_off_timer, (uint64_t)AP_AUTO_OFF_S * 1000000ULL));
+        esp_err_t err = esp_timer_start_once(s_ap_off_timer, (uint64_t)AP_AUTO_OFF_S * 1000000ULL);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to extend AP window: %s", esp_err_to_name(err));
+        }
         return;
     }
     ESP_LOGW(TAG, "AP config window expired, disabling AP");
