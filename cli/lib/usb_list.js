@@ -86,80 +86,63 @@ function parseHwidIdentity(hwid) {
   return { vid, pid, ser: serVal, location: locVal }
 }
 
-// Prefer the most useful /dev name when several point at the same hardware:
-// a name containing the USB serial number (e.g. usbserial-0001 for SER=0001)
-// beats a generic driver name (e.g. SLAB_USBtoUART, which is identical for
-// every CP210x board and ambiguous with 2+ boards plugged in). Otherwise
-// prefer cu.* over tty.* (correct for flashing), then the longer name.
+// Rank a /dev name when several point at the same hardware, highest wins:
+// serial-number match first (e.g. usbserial-0001 for SER=0001 beats the
+// generic SLAB_USBtoUART name shared by every CP210x board), then cu.* over
+// tty.* (correct for flashing), then the longer name. Compared element-wise.
+function usbPortRank(port, ser = '') {
+  const p = String(port || '')
+  return [
+    ser && p.toLowerCase().includes(String(ser).toLowerCase()) ? 1 : 0,
+    /^\/dev\/cu\./.test(p) ? 1 : 0,
+    p.length,
+  ]
+}
+
 function preferUsbPort(a, b, ser = '') {
-  const serLower = String(ser || '').toLowerCase()
-  if (serLower) {
-    const aHas = String(a.port || '')
-      .toLowerCase()
-      .includes(serLower)
-    const bHas = String(b.port || '')
-      .toLowerCase()
-      .includes(serLower)
-    if (aHas !== bHas) {
-      return bHas ? b : a
+  const ra = usbPortRank(a.port, ser)
+  const rb = usbPortRank(b.port, ser)
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i] !== rb[i]) {
+      return rb[i] > ra[i] ? b : a
     }
   }
-  const aCu = /^\/dev\/cu\./.test(a.port)
-  const bCu = /^\/dev\/cu\./.test(b.port)
-  if (aCu !== bCu) {
-    return bCu ? b : a
+  return a // fully tied: keep the first seen
+}
+
+// Canonical dedupe key for one physical USB device: hardware identity when
+// the HwID carries SER or LOCATION (same chip + same USB port = same board,
+// whatever the /dev name); otherwise the macOS cu/tty suffix, otherwise the
+// exact port. Grouping by VID:PID alone would wrongly merge distinct boards
+// sharing a bridge chip, so entries without SER/LOCATION (older pio format,
+// Bluetooth, COM ports, ...) only collapse on suffix or exact-port match.
+function canonicalUsbKey(d) {
+  const id = parseHwidIdentity(d && d.hwid)
+  if (id && (id.ser || id.location)) {
+    return `hw:${id.vid}:${id.pid}:${id.ser}:${id.location}`
   }
-  return String(b.port || '').length > String(a.port || '').length ? b : a
+  const port = (d && d.port) || ''
+  const m = port.match(/^\/dev\/(cu|tty)\.(.*)$/)
+  return m ? `macos:${m[2]}` : `port:${port}`
 }
 
 // Collapse duplicate /dev names for the same physical USB device so the
-// picker lists each board once. Two alias mechanisms exist on macOS:
-//   1. cu/tty dial-in pair: /dev/cu.X + /dev/tty.X (same suffix, same hw).
-//   2. driver synonyms: /dev/cu.usbserial-0001 + /dev/cu.SLAB_USBtoUART —
-//      different names, but identical HwID incl. SER + LOCATION (same chip,
-//      same USB port). LOCATION/SER is the hardware truth here, not the name.
-// Entries are grouped by (VID:PID + SER + LOCATION) when at least SER or
-// LOCATION is present; grouping by VID:PID alone would wrongly merge distinct
-// boards with the same bridge chip. Entries without SER/LOCATION (older pio
-// format, Bluetooth, etc.) only dedupe on exact-port or cu/tty-suffix match.
+// picker lists each board once, in first-seen (pio listing) order.
 // Linux ports (/dev/ttyUSB0, /dev/ttyACM0, ...) have distinct suffixes and
 // distinct LOCATIONs, so distinct boards are never merged.
 function dedupeUsbDevices(devices) {
-  const byHw = new Map() // hw identity key -> device
-  const byAlias = new Map() // fallback key -> device
-  const hwKeyOf = (d) => {
-    const id = parseHwidIdentity(d && d.hwid)
-    if (!id || (!id.ser && !id.location)) {
-      return null
-    }
-    return `hw:${id.vid}:${id.pid}:${id.ser}:${id.location}`
-  }
-  const aliasKeyOf = (d) => {
-    const port = (d && d.port) || ''
-    const m = port.match(/^\/dev\/(cu|tty)\.(.*)$/)
-    return m ? `macos:${m[2]}` : `port:${port}`
-  }
+  const seen = new Map() // canonical key -> device
   for (const d of devices) {
-    const hwKey = hwKeyOf(d)
-    if (hwKey) {
-      const existing = byHw.get(hwKey)
-      if (!existing) {
-        byHw.set(hwKey, d)
-      } else {
-        const id = parseHwidIdentity(d.hwid)
-        byHw.set(hwKey, preferUsbPort(existing, d, id && id.ser))
-      }
-      continue
-    }
-    const key = aliasKeyOf(d)
-    const existing = byAlias.get(key)
+    const key = canonicalUsbKey(d)
+    const existing = seen.get(key)
     if (!existing) {
-      byAlias.set(key, d)
+      seen.set(key, d)
     } else {
-      byAlias.set(key, preferUsbPort(existing, d))
+      const id = parseHwidIdentity(d && d.hwid)
+      seen.set(key, preferUsbPort(existing, d, id && id.ser))
     }
   }
-  return [...byHw.values(), ...byAlias.values()]
+  return [...seen.values()]
 }
 // Best-effort guess that a USB serial device is an ESP dev board by checking
 // the USB VID of its UART-bridge chip. Returns true for known CP210x (10c4),
