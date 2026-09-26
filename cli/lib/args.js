@@ -42,11 +42,6 @@ function validateArgs(parsedArgs) {
     process.exit(1)
   }
 
-  if (parsedArgs.hasWifiSsid && parsedArgs.autoYes) {
-    console.error('Error: --wifi-ssid needs an interactive password prompt (remove -y/--yes)')
-    process.exit(1)
-  }
-
   if (parsedArgs.wifiSsid && Buffer.byteLength(parsedArgs.wifiSsid, 'utf8') > 32) {
     console.error('Error: --wifi-ssid must be at most 32 bytes')
     process.exit(1)

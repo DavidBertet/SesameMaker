@@ -60,10 +60,9 @@ Options:
   -s, --serial                Force a USB/serial upload (build to USB only)
       --usb                   Alias for --serial
   -p, --upload-password <PWD> Set upload password for authentication
-  --wifi-ssid <SSID>          Bake WiFi credentials into firmware. Password is
-                              asked interactively (hidden input) after device
-                              selection unless you confirm reuse. Stored in
-                              backend/src/secrets.h (gitignored, never committed)
+  --wifi-ssid <SSID>          Pre-fill the SSID for post-flash USB provisioning.
+                              Asked interactively (hidden password input) after
+                              device selection unless skipped.
   -y, --yes                   Auto-confirm all prompts except device selection
                               (device target is always confirmed interactively)
   -f, --frontend-only         Build/deploy frontend only

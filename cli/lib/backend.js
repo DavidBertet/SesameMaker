@@ -4,7 +4,6 @@ const fs = require('fs')
 const path = require('path')
 const { askQuestion } = require('./prompt')
 const { logger, colors } = require('./logger')
-const { injectOtaPassword } = require('./password')
 
 // Parse the single [env:...] section and its board from platformio.ini.
 // Line-anchored: comments may mention [env:...] names.
@@ -28,14 +27,9 @@ function setEnvBoard(iniContent, envName, board) {
   return iniContent.replace(/^\s*board\s*=.*$/m, `board = ${board}`)
 }
 
-async function configureBackend(args, otaPassword) {
+async function configureBackend(args) {
   logger.step('Configuring backend...')
   logger.separator()
-
-  if (otaPassword) {
-    injectOtaPassword(otaPassword)
-    logger.info(`OTA password configured (${otaPassword.length} characters)`)
-  }
 
   const platformioPath = path.resolve('backend/platformio.ini')
   let platformioContent = fs.readFileSync(platformioPath, 'utf8')

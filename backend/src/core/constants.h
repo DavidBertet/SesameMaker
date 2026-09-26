@@ -1,16 +1,9 @@
 #pragma once
 
-#define OTA_PASSWORD "your_secure_password_here"
-
-// Build-time WiFi defaults (empty placeholders; real secrets live in
-// gitignored secrets.h, written by `install.sh --wifi-ssid`).
-#define DEFAULT_WIFI_SSID ""
-#define DEFAULT_WIFI_PASSWORD ""
-#define DEFAULT_WIFI_GEN ""
-
-#if __has_include("secrets.h")
-#include "secrets.h"
-#endif
+// OTA upload password default. Empty = open (no password required); set a
+// real password over USB provisioning (Improv 0x10) or --upload-password,
+// which stores it in NVS and takes precedence over this default.
+#define OTA_PASSWORD ""
 
 // ==== SesameMaker: GPIO pins ====
 // secplus1 wall bus (1200 baud 8E1 half duplex) via interface circuit:

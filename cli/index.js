@@ -8,7 +8,6 @@ const { checkPrerequisites } = require('./lib/prerequisites')
 const { buildFrontend } = require('./lib/frontend')
 const { buildBackendPIO } = require('./lib/pio')
 const { configureBackend } = require('./lib/backend')
-const { configureWifi } = require('./lib/wifi')
 const { uploadToDevice } = require('./lib/upload')
 const { resolveOtaPassword } = require('./lib/password')
 const { provisionOverUsb } = require('./lib/usb_provision')
@@ -28,10 +27,8 @@ async function main() {
     args.uploadPassword = otaPassword
 
     await checkPrerequisites(args)
-    let wifiConfig = null
     if (!args.frontendOnly) {
-      await configureBackend(args, otaPassword)
-      wifiConfig = await configureWifi(args)
+      await configureBackend(args)
       await buildBackendPIO(args)
     }
     if (!args.backendOnly) {
@@ -52,7 +49,7 @@ async function main() {
     // Serial flash with WiFi: the device reboots, joins WiFi via DHCP under a
     // new unknown IP. Poll the network so we can print where it landed.
     let discoveredDevices = []
-    const joinSsid = (provisioned && provisioned.ssid) || (wifiConfig && wifiConfig.ssid)
+    const joinSsid = provisioned && provisioned.ssid
     if (
       !args.otaIP &&
       joinSsid &&

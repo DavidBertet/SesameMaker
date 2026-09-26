@@ -115,9 +115,10 @@ test('--wifi-ssid without a value is rejected', () => {
   assert.ok(exitCode !== null)
 })
 
-test('--wifi-ssid with -y is rejected immediately', () => {
-  const { exitCode } = parseWithExitStub(['--wifi-ssid', 'MyHome', '-y'])
-  assert.ok(exitCode !== null)
+test('--wifi-ssid works with -y (SSID only pre-fills the USB prompt)', () => {
+  const { parsed, exitCode } = parseWithExitStub(['--wifi-ssid', 'MyHome', '-y'])
+  assert.equal(exitCode, null)
+  assert.equal(parsed.wifiSsid, 'MyHome')
 })
 
 test('--wifi-ssid over 32 bytes is rejected', () => {
