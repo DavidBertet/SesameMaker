@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <esp_log.h>
 #include <esp_http_server.h>
+#include "nvs.h"
 #include "esp_ota_ops.h"
 #include "esp_spiffs.h"
 #include "esp_vfs.h"
@@ -594,6 +595,40 @@ void ota_password_get(char *buf, size_t len)
     }
 }
 
+#define OTA_PASSWORD_GENERATED_LEN 16
+
+void ota_password_ensure_generated(void)
+{
+    // Key present (even if cleared to empty on purpose): respect it as-is.
+    // Only a missing key on an open-by-default build generates a password.
+    char current[65] = {0};
+    esp_err_t err = read_str("ota_password", current, sizeof(current));
+    memset(current, 0, sizeof(current));
+    if (err == ESP_OK)
+    {
+        return;
+    }
+    if (err != ESP_ERR_NVS_NOT_FOUND || OTA_PASSWORD[0] != '\0')
+    {
+        return; // NVS trouble (stay open, don't churn) or build default covers it
+    }
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    char fresh[OTA_PASSWORD_GENERATED_LEN + 1];
+    for (size_t i = 0; i < OTA_PASSWORD_GENERATED_LEN; i++)
+    {
+        fresh[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+    }
+    fresh[OTA_PASSWORD_GENERATED_LEN] = '\0';
+    if (write_str("ota_password", fresh) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to store generated OTA password, uploads stay open");
+        memset(fresh, 0, sizeof(fresh));
+        return;
+    }
+    ESP_LOGW(TAG, "Generated random OTA password (shown once, store it safely): %s", fresh);
+    memset(fresh, 0, sizeof(fresh));
+}
+
 static bool check_password(httpd_req_t *req)
 {
     // If no password is defined, allow access
@@ -733,6 +768,11 @@ static void cleanup_temp_files_on_startup(void)
 void start_web_file(httpd_handle_t server)
 {
   ESP_LOGI(TAG, "Start web file");
+
+  // No password from USB provisioning and none baked in: invent one now so
+  // OTA is never accidentally open. Printed to USB serial exactly once —
+  // store it, it is never shown again.
+  ota_password_ensure_generated();
 
   // Clean up any leftover temporary files from interrupted uploads
   cleanup_temp_files_on_startup();

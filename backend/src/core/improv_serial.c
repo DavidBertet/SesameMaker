@@ -171,7 +171,9 @@ static void handle_set_ota_password(const uint8_t *payload, size_t plen)
     }
     else
     {
-        delete_blob("ota_password");
+        // Write empty, don't delete: a missing key regenerates a random
+        // password at next boot, an empty one stays open on purpose.
+        write_str("ota_password", "");
     }
     memset(pass, 0, sizeof(pass));
     ESP_LOGI(TAG, "OTA password updated over USB");

@@ -24,6 +24,7 @@ async function provisionOverUsb(args, { otaPassword, backendUploaded } = {}, dep
   if (!isInteractive()) {
     logger.info('Skipping USB provisioning (non-interactive session).')
     logger.info('Join the "SesameMaker" AP or re-run with a TTY to configure WiFi.')
+    logger.info('Note: first boot generated a random OTA password (see the USB serial log).')
     return null
   }
 
