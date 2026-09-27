@@ -44,7 +44,7 @@ function checksum(bytes) {
 // One frame: magic + version + type + len + data + checksum + '\n'.
 function buildFrame(type, data) {
   const body = Buffer.from(data || [])
-  if (body.length > 255) throw new Error('improv frame data too long')
+  if (body.length > 255) throw new Error('Frame data too long')
   const head = Buffer.concat([MAGIC, Buffer.from([VERSION, type, body.length]), body])
   return Buffer.concat([head, Buffer.from([checksum(head), 0x0a])])
 }
@@ -106,7 +106,7 @@ function waitFor(predicate, timeoutMs, what) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       clearInterval(poll)
-      reject(new Error(`timed out waiting for ${what}`))
+      reject(new Error(`Timed out waiting for ${what}`))
     }, timeoutMs)
     const poll = setInterval(() => {
       let hit
@@ -179,7 +179,7 @@ async function provisionWifi(
         'device state',
       ).catch(() => null)
     }
-    if (!state) throw new Error('device did not answer Improv requests (is the firmware running?)')
+    if (!state) throw new Error('Device did not answer requests (is the firmware running?)')
 
     await write(rpcCommand(RPC.WIFI_SETTINGS, wifiSettingsPayload(ssid, password)))
     // Wait for the terminal outcome only. Intermediate PROVISIONING states
@@ -194,7 +194,7 @@ async function provisionWifi(
     )
     if (done.type === TYPE.ERROR) {
       const code = done.data[0]
-      throw new Error(`device refused: ${ERROR_NAMES[code] || `code ${code}`}`)
+      throw new Error(`Device refused: ${ERROR_NAMES[code] || `code ${code}`}`)
     }
 
     // The URL result trails the PROVISIONED state - but it can lose a
@@ -374,7 +374,7 @@ async function scanNetworks(portPath, { timeoutMs = 20000 } = {}, serialLib = nu
     for (;;) {
       const remaining = deadline - Date.now()
       if (remaining <= 0) {
-        throw new Error('timed out waiting for network scan')
+        throw new Error('Timed out waiting for network scan')
       }
       const frame = await waitFor(
         () => {
