@@ -71,12 +71,8 @@ static void initialize_sntp(void)
 static void ntp_time_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    // The delay keeps this from becoming a log flood + busy loop if the
-    // wait ever returns instantly instead of blocking its 10 s.
     while (!wait_wifi_connection())
-    {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
+        ESP_LOGI(TAG, "Waiting for WiFi connection...");
 
     ESP_LOGI(TAG, "WiFi connected, starting NTP sync");
 

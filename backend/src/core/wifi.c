@@ -415,6 +415,15 @@ static void wifi_connect_task(void *pvParameters)
 
 bool wait_wifi_connection(void)
 {
+    // A stale FAIL_BIT from an older attempt would shortcut this wait
+    // instantly — and spin any retry loop on it (seen: NTP log flood the
+    // moment retries exhaust). Each wait starts clean and reports only this
+    // window's outcome. CONNECTED stays sticky on purpose: still connected
+    // means success right away.
+    if (s_wifi_event_group)
+    {
+        xEventGroupClearBits(s_wifi_event_group, WIFI_FAIL_BIT);
+    }
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                                            pdFALSE,
