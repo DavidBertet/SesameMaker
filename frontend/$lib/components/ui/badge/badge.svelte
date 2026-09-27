@@ -9,6 +9,8 @@
 					"bg-primary text-primary-foreground [a&]:hover:bg-primary/90 border-transparent",
 				secondary:
 					"bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90 border-transparent",
+				success:
+					"bg-green-600 text-white [a&]:hover:bg-green-600/90 dark:bg-green-700 border-transparent",
 				destructive:
 					"bg-destructive [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/70 border-transparent text-white",
 				outline: "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",

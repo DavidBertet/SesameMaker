@@ -15,6 +15,7 @@
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
   import WifiStatusCard from 'src/core/components/wifi/WifiStatusCard.svelte'
   import WifiConnectCard from 'src/core/components/wifi/WifiConnectCard.svelte'
+  import { getSignalStrength } from 'src/core/lib/wifi.js'
 
   let wifiStatus = $state(null)
   let wifiStatusLoading = $state(true)
@@ -24,14 +25,6 @@
 
   // Disable ping pong when disconnecting
   $effect(() => (wsState.pingPaused = isDisconnecting))
-
-  function getSignalStrength(rssi) {
-    if (rssi >= -30) return 'Excellent'
-    if (rssi >= -50) return 'Good'
-    if (rssi >= -60) return 'Fair'
-    if (rssi >= -70) return 'Weak'
-    return 'Very Weak'
-  }
 
   onMount(() => {
     wifiStatusUnsub = onMessageType('wifi_status', (data) => {

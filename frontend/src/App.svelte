@@ -31,9 +31,14 @@
   import Sonner from '$lib/components/ui/sonner/sonner.svelte'
   import { cn } from '$lib/utils'
   import { Wifi, Info, Heart } from 'lucide-svelte'
-  import { DoorOpen, Activity, Radio, Cpu } from 'lucide-svelte'
+  import { DoorOpen, Activity, Radio, Cpu, Usb } from 'lucide-svelte'
 
   const isDev = import.meta.env.DEV
+  // USB setup tab: demo builds only (dev server + GitHub Pages). Loaded via
+  // dynamic import so the device bundle never includes it (see the
+  // SetupTab-* exclusion in package.json build).
+  const showSetupTab = import.meta.env.DEV || import.meta.env.MODE === 'github'
+  let SetupTab = $state(null)
 
   let rawTab = $state(new URLSearchParams(window.location.search).get('tab') || 'door')
   // Backward compat: ?tab=mqtt now lives inside Device Settings.
@@ -48,6 +53,9 @@
   let systemBannerVisible = $state(false)
 
   onMount(() => {
+    if (showSetupTab) {
+      import('src/app/components/tab/SetupTab.svelte').then((m) => (SetupTab = m.default))
+    }
     let wsUrl
     if (isDev) {
       wsUrl = `ws://localhost:8080`
@@ -91,7 +99,7 @@
     window.history.replaceState({}, '', url)
   })
 
-  const tabs = [
+  const baseTabs = [
     {
       id: 'door',
       label: 'Garage Door',
@@ -129,6 +137,12 @@
       component: PinInspectorTab,
     },
   ]
+
+  const tabs = $derived(
+    SetupTab
+      ? [...baseTabs, { id: 'setup', label: 'USB Setup', icon: Usb, component: SetupTab }]
+      : baseTabs,
+  )
 
   function setActiveTab(tab) {
     activeTab = tab
