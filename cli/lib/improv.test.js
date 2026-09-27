@@ -162,3 +162,39 @@ test('resolvePortPath keeps the known path when ambiguous or list fails', async 
   }
   assert.equal(await resolvePortPath('/dev/gone', failing), '/dev/gone')
 })
+
+test('getNetworkState parses flags and urls', async () => {
+  const impl = loadImprov()
+  const { buildFrame, parseFrames, TYPE, RPC } = impl
+  const lib = {
+    SerialPort: class extends require('node:events').EventEmitter {
+      open(cb) {
+        setImmediate(cb)
+      }
+      write(data, cb) {
+        setImmediate(cb)
+        const { frames } = parseFrames(Buffer.from(data))
+        for (const f of frames) {
+          if (f.type !== TYPE.RPC) continue
+          if (f.data[0] === RPC.GET_NETSTATE) {
+            const url = Buffer.from('http://192.168.1.10/', 'utf8')
+            const body = Buffer.concat([
+              Buffer.from([RPC.GET_NETSTATE, 1 + url.length + 1, 1]),
+              Buffer.from('3'),
+              Buffer.from([url.length]),
+              url,
+            ])
+            setImmediate(() => this.emit('data', buildFrame(TYPE.RESULT, body)))
+          }
+        }
+      }
+      close(cb) {
+        setImmediate(cb)
+      }
+    },
+  }
+  assert.deepEqual(await impl.getNetworkState('/dev/x', {}, lib), {
+    flags: 3,
+    urls: ['http://192.168.1.10/'],
+  })
+})

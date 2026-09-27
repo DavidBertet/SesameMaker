@@ -22,6 +22,7 @@ const RPC = {
   GET_STATE: 0x02,
   GET_INFO: 0x03,
   GET_NETWORKS: 0x04,
+  GET_NETSTATE: 0x07,
   SET_OTA_PASSWORD: 0x10, // SesameMaker extension (see improv.h)
   GET_OTA_PASSWORD: 0x11, // SesameMaker extension (read-back for install.sh)
 }
@@ -334,6 +335,21 @@ async function setOtaPassword(portPath, password, opts = {}, serialLib = null) {
   expectResult(frame, 'set OTA password')
 }
 
+// General connectivity without provisioning: { flags, urls }. flags bit 0
+// is online, bit 1 is supports-WiFi (so 3 = online, 2 = offline here).
+async function getNetworkState(portPath, opts = {}, serialLib = null) {
+  const frame = await exchangeRpc(portPath, RPC.GET_NETSTATE, [], opts, serialLib)
+  expectResult(frame, 'network state')
+  const strs = []
+  let pos = 2
+  while (pos < frame.data.length) {
+    const slen = frame.data[pos++]
+    strs.push(frame.data.slice(pos, pos + slen).toString('utf8'))
+    pos += slen
+  }
+  return { flags: parseInt(strs[0] || '0', 10), urls: strs.slice(1) }
+}
+
 module.exports = {
   TYPE,
   STATE,
@@ -352,4 +368,5 @@ module.exports = {
   firstResultString,
   getOtaPassword,
   setOtaPassword,
+  getNetworkState,
 }

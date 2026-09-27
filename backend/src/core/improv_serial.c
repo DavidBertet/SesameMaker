@@ -180,6 +180,29 @@ static void handle_wifi_settings(const uint8_t *payload, size_t plen)
     }
 }
 
+static void handle_get_netstate(void)
+{
+    // General connectivity, decoupled from the provisioning state machine:
+    // flags byte as a decimal string, then reachable URLs when online.
+    char flags[4];
+    if (is_wifi_connected())
+    {
+        snprintf(flags, sizeof(flags), "%u", 0x01 | 0x02); // online + wifi
+        const char *url = device_url();
+        if (url)
+        {
+            const char *strs[] = {flags, url};
+            send_result(IMPROV_RPC_GET_NETSTATE, strs, 2);
+            return;
+        }
+    }
+    else
+    {
+        snprintf(flags, sizeof(flags), "%u", 0x02); // wifi, offline
+    }
+    send_result(IMPROV_RPC_GET_NETSTATE, (const char *[]){flags}, 1);
+}
+
 static void handle_get_networks(void)
 {
     // Blocking scan, same call the portal's wifi_scan uses. Each network
@@ -264,6 +287,9 @@ static void handle_rpc(const uint8_t *data, size_t len)
         break;
     case IMPROV_RPC_GET_NETWORKS:
         handle_get_networks();
+        break;
+    case IMPROV_RPC_GET_NETSTATE:
+        handle_get_netstate();
         break;
     case IMPROV_RPC_SET_OTA_PASSWORD:
         handle_set_ota_password(payload, plen);
