@@ -1,6 +1,12 @@
 # Required for the WebSocket interface (frontend <-> backend).
 CONFIG_HTTPD_WS_SUPPORT=y
 
+# Primary console on USB-Serial-JTAG (the DevKitM-1 USB port): IDF installs
+# the JTAG serial driver, which the Improv provisioning task shares for
+# reads/writes. UART0 has no USB behind it on this board.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
 # Custom partition table (factory + OTA + SPIFFS storage). Shared by every
 # env: all our boards ship 4MB+ flash so one 4MB layout fits all.
 CONFIG_PARTITION_TABLE_CUSTOM=y

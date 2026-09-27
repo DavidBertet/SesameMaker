@@ -12,6 +12,7 @@
 #include "driver/usb_serial_jtag.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -37,6 +38,15 @@ static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
+
+// Console transport: USB-Serial-JTAG is the primary console (see
+// sdkconfig.defaults), but the console writes straight to the FIFO without
+// installing the driver — so reads would hard-fault on the NULL driver
+// object. Install it ourselves with RX+TX buffers; console output keeps
+// working alongside (a log line landing mid-frame just fails the host
+// checksum and it retries).
+#define IMPROV_JTAG_RX_BUF 512
+#define IMPROV_JTAG_TX_BUF 512
 
 static void improv_tx(uint8_t type, const uint8_t *data, size_t len)
 {
@@ -130,6 +140,18 @@ static void handle_wifi_settings(const uint8_t *payload, size_t plen)
     // SSID only in logs: it beacons in the clear anyway, the password never.
     ESP_LOGI(TAG, "Provisioning SSID \"%s\" over USB", ssid);
     send_state(IMPROV_STATE_PROVISIONING);
+    // Drop any live connection first: otherwise an already-online device
+    // reports instant success without ever trying the new credentials.
+    if (is_wifi_connected())
+    {
+        ESP_LOGI(TAG, "Dropping current STA connection before provisioning");
+        esp_wifi_disconnect();
+        uint32_t gone = now_ms();
+        while (is_wifi_connected() && (now_ms() - gone) < 3000)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
     esp_err_t err = wifi_start_sta_connection(ssid, pass);
     memset(pass, 0, sizeof(pass)); // creds are copied out synchronously above
     if (err != ESP_OK)
@@ -209,7 +231,8 @@ static void handle_rpc(const uint8_t *data, size_t len)
     case IMPROV_RPC_SET_OTA_PASSWORD:
         handle_set_ota_password(payload, plen);
         break;
-    case IMPROV_RPC_GET_OTA_PASSWORD: {
+    case IMPROV_RPC_GET_OTA_PASSWORD:
+    {
         char current[65];
         ota_password_get(current, sizeof(current));
         send_result(IMPROV_RPC_GET_OTA_PASSWORD, (const char *[]){current}, current[0] ? 1 : 0);
@@ -265,7 +288,19 @@ void improv_serial_start(void)
 {
     if (!s_improv_task)
     {
+        const usb_serial_jtag_driver_config_t cfg = {
+            .tx_buffer_size = IMPROV_JTAG_TX_BUF,
+            .rx_buffer_size = IMPROV_JTAG_RX_BUF,
+        };
+        esp_err_t err = usb_serial_jtag_driver_install((usb_serial_jtag_driver_config_t *)&cfg);
+        ESP_LOGI(TAG, "JTAG driver install: %s", esp_err_to_name(err));
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+        {
+            ESP_LOGE(TAG, "JTAG driver install failed, no USB provisioning");
+            return;
+        }
         xTaskCreate(improv_serial_task, "improv_serial", IMPROV_TASK_STACK,
                     NULL, IMPROV_TASK_PRIO, &s_improv_task);
+        ESP_LOGI(TAG, "Improv task started");
     }
 }
