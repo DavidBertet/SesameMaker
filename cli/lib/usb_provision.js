@@ -23,15 +23,27 @@ function isInteractive() {
 async function readDeviceOtaPassword(port, improv, { attempts = 8, retryMs = 2000 } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await improv.getOtaPassword(port, { timeoutMs: 2500 })
-    } catch (error) {
-      if (attempt === attempts) {
-        throw error
+      const pwd = await improv.getOtaPassword(port, { timeoutMs: 2500 })
+
+      // If we got a string (even an empty string ''), return it
+      if (pwd !== null) {
+        return pwd
       }
-      await new Promise((resolve) => setTimeout(resolve, retryMs))
+
+      // If pwd is null, the device didn't answer (likely rebooting)
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, retryMs))
+      }
+    } catch (error) {
+      // If pwd is null, the device didn't answer (likely rebooting)
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, retryMs))
+      }
+      logger.debug(`Usb read failed: ${error.message}`)
     }
   }
-  return null // unreachable: last attempt throws
+
+  return null // Exhausted all attempts
 }
 
 // The OTA password on the device after this step. Explicit flag wins;
@@ -42,12 +54,9 @@ async function resolveDeviceOtaPassword(port, uploadPassword, deps, retry) {
   const { generateOtaPassword } = deps.password
   const spinner = new Spinner('Reading device OTA password...')
   spinner.start()
-  let devicePw = null
-  try {
-    devicePw = await readDeviceOtaPassword(port, deps.improv, retry)
-  } catch (error) {
+  let devicePw = await readDeviceOtaPassword(port, deps.improv, retry)
+  if (devicePw == null) {
     spinner.stop(false, 'Device did not answer (not booted yet, or old firmware without Improv?)')
-    logger.debug(`OTA read failed: ${error.message}`)
     return null
   }
   spinner.stop(true, 'Device answered over USB')

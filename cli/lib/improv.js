@@ -81,7 +81,9 @@ function parseFrames(buf) {
 
 function rpcCommand(cmd, payload) {
   const body = Buffer.from(payload || [])
-  return buildFrame(TYPE.RPC, Buffer.concat([Buffer.from([cmd, body.length]), body]))
+  // RPC frame data consists of [Command Byte] + [Payload Length] + [Payload Data]
+  const rpcData = Buffer.concat([Buffer.from([cmd, body.length]), body])
+  return buildFrame(TYPE.RPC, rpcData)
 }
 
 function wifiSettingsPayload(ssid, password) {
@@ -133,7 +135,14 @@ async function provisionWifi(
 ) {
   const { SerialPort } = serialLib || require('serialport')
   // hupcl:false — dropping DTR on close must not reboot the device behind us.
-  const port = new SerialPort({ path: portPath, baudRate: 115200, autoOpen: false, hupcl: false })
+  const port = new SerialPort({
+    path: portPath,
+    baudRate: 115200,
+    autoOpen: false,
+    hupcl: false,
+    dtr: false, // Prevents toggling CHIP_PU / EN pin on open
+    rts: false, // Prevents toggling GPIO0 on open
+  })
   let buf = Buffer.alloc(0)
   const seen = []
   const onData = (chunk) => {
@@ -150,9 +159,13 @@ async function provisionWifi(
 
   await new Promise((resolve, reject) => port.open((err) => (err ? reject(err) : resolve())))
   try {
+    port.on('data', onData)
+
+    // Brief delay to let CDC USB settle
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
     const write = (data) =>
       new Promise((resolve, reject) => port.write(data, (err) => (err ? reject(err) : resolve())))
-    port.on('data', onData)
 
     // Say hello until the device answers (it shares the line with boot logs).
     let state = null
@@ -167,10 +180,13 @@ async function provisionWifi(
     if (!state) throw new Error('device did not answer Improv requests (is the firmware running?)')
 
     await write(rpcCommand(RPC.WIFI_SETTINGS, wifiSettingsPayload(ssid, password)))
+    // Wait for the terminal outcome only. Intermediate PROVISIONING states
+    // just mean "still trying" — resolving on them returns before the
+    // device is connected and before the URL result arrives.
     const done = await waitFor(
       () =>
-        take((f) => f.type === TYPE.STATE && f.data[0] === STATE.PROVISIONED) ||
-        take((f) => f.type === TYPE.ERROR),
+        take((f) => f.type === TYPE.ERROR) ||
+        take((f) => f.type === TYPE.STATE && f.data[0] === STATE.PROVISIONED),
       connectTimeoutMs,
       'provisioning result',
     )
@@ -179,13 +195,20 @@ async function provisionWifi(
       throw new Error(`device refused: ${ERROR_NAMES[code] || `code ${code}`}`)
     }
 
+    // The URL result trails the PROVISIONED state — give it a moment.
     let url = null
-    // The provisioned state is usually followed by a result carrying the URL.
-    const result = take((f) => f.type === TYPE.RESULT)
+    const result = await waitFor(
+      () => take((f) => f.type === TYPE.RESULT) || take((f) => f.type === TYPE.ERROR),
+      5000,
+      'device URL',
+    ).catch(() => null)
+    if (result && result.type === TYPE.ERROR) {
+      throw new Error(`device refused: ${ERROR_NAMES[result.data[0]] || 'unknown'}`)
+    }
     if (result && result.data.length > 2) {
-      let pos = 2
-      const slen = result.data[pos++]
-      url = result.data.slice(pos, pos + slen).toString('utf8') || null
+      const pos = 2
+      const slen = result.data[pos]
+      url = result.data.slice(pos + 1, pos + 1 + slen).toString('utf8') || null
     }
 
     if (otaPassword !== undefined) {
@@ -222,10 +245,14 @@ async function exchangeRpc(portPath, cmd, payload, { timeoutMs = 5000 } = {}, se
   }
   await new Promise((resolve, reject) => port.open((err) => (err ? reject(err) : resolve())))
   try {
+    port.on('data', onData)
+
+    // Brief delay to let CDC USB settle
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
     await new Promise((resolve, reject) =>
       port.write(rpcCommand(cmd, payload), (err) => (err ? reject(err) : resolve())),
     )
-    port.on('data', onData)
     return await waitFor(
       () => {
         const i = seen.findIndex((f) => f.type === TYPE.RESULT || f.type === TYPE.ERROR)
@@ -291,4 +318,8 @@ module.exports = {
   wifiSettingsPayload,
   otaPasswordPayload,
   provisionWifi,
+  exchangeRpc,
+  firstResultString,
+  getOtaPassword,
+  setOtaPassword,
 }
