@@ -120,3 +120,45 @@ test('provisionWifi throws the device error text', async () => {
     /unable to connect/,
   )
 })
+
+test('resolvePortPath prefers the known path when present', async () => {
+  const { resolvePortPath } = loadImprov()
+  const lib = {
+    SerialPort: {
+      list: async () => [
+        { path: '/dev/cu.usbmodem1101' },
+        { path: '/dev/cu.Bluetooth-Incoming-Port' },
+      ],
+    },
+  }
+  assert.equal(await resolvePortPath('/dev/cu.usbmodem1101', lib), '/dev/cu.usbmodem1101')
+})
+
+test('resolvePortPath follows a single USB candidate when known path is gone', async () => {
+  const { resolvePortPath } = loadImprov()
+  const lib = {
+    SerialPort: {
+      list: async () => [
+        { path: '/dev/cu.usbmodem1101' },
+        { path: '/dev/cu.Bluetooth-Incoming-Port' },
+      ],
+    },
+  }
+  assert.equal(await resolvePortPath('/dev/cu.usbmodem2101', lib), '/dev/cu.usbmodem1101')
+})
+
+test('resolvePortPath keeps the known path when ambiguous or list fails', async () => {
+  const { resolvePortPath } = loadImprov()
+  const two = {
+    SerialPort: { list: async () => [{ path: '/dev/ttyUSB0' }, { path: '/dev/ttyUSB1' }] },
+  }
+  assert.equal(await resolvePortPath('/dev/gone', two), '/dev/gone')
+  const failing = {
+    SerialPort: {
+      list: async () => {
+        throw new Error('nope')
+      },
+    },
+  }
+  assert.equal(await resolvePortPath('/dev/gone', failing), '/dev/gone')
+})

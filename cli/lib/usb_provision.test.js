@@ -19,6 +19,7 @@ const tty = () => {
 function deps(over = {}) {
   return {
     improv: {
+      resolvePortPath: async (p) => p,
       getOtaPassword: async () => 'dev-pw',
       setOtaPassword: async () => {},
       provisionWifi: async () => ({ ssid: 'x', url: null }),
@@ -104,6 +105,46 @@ test('provisionOverUsb sends the flag password and generates when open', async (
   const res2 = await provisionOverUsb({ serialPort: '/dev/ttyUSB0' }, { backendUploaded: true }, d2)
   assert.deepEqual(res2, { ssid: null, url: null, otaPassword: 'generated-pw' })
   assert.deepEqual(sets, [['/dev/ttyUSB0', 'generated-pw']])
+})
+
+test('provisionOverUsb follows the port when flashing re-enumerates it', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  const seen = []
+  const d = deps({
+    improv: {
+      resolvePortPath: async (p) => {
+        assert.equal(p, undefined)
+        return '/dev/cu.usbmodem1101'
+      },
+      getOtaPassword: async () => 'dev-pw',
+      setOtaPassword: async () => {},
+      provisionWifi: async (port, opts) => {
+        seen.push(port)
+        return { ssid: opts.ssid, url: null }
+      },
+    },
+    prompt: { askQuestion: async () => 'y', askPassword: async () => 'pw' },
+  })
+  // no serialPort known (-s flow): resolves the single candidate, wifi on it
+  const res = await provisionOverUsb({ wifiSsid: 'home' }, { backendUploaded: true }, d)
+  assert.equal(res.otaPassword, 'dev-pw')
+  assert.equal(res.ssid, 'home')
+  assert.deepEqual(seen, ['/dev/cu.usbmodem1101'])
+})
+
+test('provisionOverUsb returns null with no USB port at all', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  let contacted = false
+  const d = deps({
+    improv: {
+      resolvePortPath: async () => undefined,
+      getOtaPassword: async () => ((contacted = true), 'x'),
+    },
+  })
+  assert.equal(await provisionOverUsb({}, { backendUploaded: true }, d), null)
+  assert.equal(contacted, false)
 })
 
 test('provisionOverUsb returns null when the device does not answer', async () => {

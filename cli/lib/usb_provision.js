@@ -9,7 +9,7 @@
 // input, so WiFi setup is TTY-gated (like device selection, exempt from
 // -y/--yes) while the password resolution runs headless too.
 
-const { logger, colors } = require('./logger')
+const { logger } = require('./logger')
 const { Spinner } = require('./spinner')
 
 function isInteractive() {
@@ -59,7 +59,7 @@ async function resolveDeviceOtaPassword(port, uploadPassword, deps, retry) {
     spinner.stop(false, 'Device did not answer (not booted yet, or old firmware without Improv?)')
     return null
   }
-  spinner.stop(true, 'Device answered over USB')
+  spinner.stop(true)
 
   if (uploadPassword) {
     if (uploadPassword !== devicePw) {
@@ -81,12 +81,24 @@ async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry }
   const prompt = deps.prompt || require('./prompt')
   const password = deps.password || require('./password')
 
-  if (!backendUploaded || !args.serialPort || args.otaIP) {
+  if (!backendUploaded || args.otaIP) {
     return null
   }
 
+  // Forced serial installs (-s) skip discovery, so no port is known yet —
+  // and flashing can re-enumerate the device under a new node. Follow a
+  // single USB-serial candidate when the known path is gone.
+  const port = await improv.resolvePortPath(args.serialPort)
+  if (!port) {
+    logger.info('No USB serial port found — skipping USB provisioning.')
+    return null
+  }
+  if (port !== args.serialPort) {
+    logger.info(`Using serial port ${port} for USB provisioning.`)
+  }
+
   const otaPassword = await resolveDeviceOtaPassword(
-    args.serialPort,
+    port,
     uploadPassword,
     {
       improv,
@@ -97,12 +109,7 @@ async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry }
   if (otaPassword === null) {
     return null
   }
-  logger.info(
-    `OTA upload password: ${colors.yellow}${otaPassword || '(none — uploads are open)'}${colors.reset}`,
-  )
-  if (otaPassword) {
-    logger.info('Keep it safe — it is used to authenticate OTA uploads.')
-  }
+  // Printed once by the completion message — not here.
 
   if (!isInteractive()) {
     logger.info('Skipping WiFi setup (non-interactive session).')
@@ -132,11 +139,8 @@ async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry }
   const spinner = new Spinner(`Provisioning "${ssid}" over USB...`)
   spinner.start()
   try {
-    const res = await improv.provisionWifi(args.serialPort, { ssid, password: wifiPassword })
+    const res = await improv.provisionWifi(port, { ssid, password: wifiPassword })
     spinner.stop(true, `Device is joining "${ssid}"`)
-    if (res.url) {
-      logger.info(`Web interface will be at ${res.url} once it joins.`)
-    }
     return { ssid, url: res.url, otaPassword }
   } catch (error) {
     spinner.stop(false, 'USB provisioning failed')

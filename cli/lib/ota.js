@@ -182,7 +182,7 @@ function uploadFilesHTTP(ip, uploadPassword, filePaths) {
           results.push(result)
         } catch (error) {
           if (error.message.includes('401')) {
-            logger.error(`Upload aborted: Invalid credentials`)
+            logger.error('Upload aborted: invalid OTA password (re-run with -p <password>)')
             break
           }
           logger.error(`Failed to upload ${fileName}: ${error.message}`)
@@ -270,7 +270,7 @@ async function uploadBackendOTA(args) {
 
     try {
       let result = await uploadFilesHTTP(args.otaIP, args.uploadPassword, [buildFiles.firmware])
-      if (result[0].success == false) {
+      if (!result[0] || result[0].success == false) {
         logger.error('Firmware OTA upload failed')
         return
       }

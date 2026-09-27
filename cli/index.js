@@ -35,6 +35,7 @@ async function main() {
       await buildFrontend(args)
     }
     const finalResults = await uploadToDevice(args)
+    console.log()
 
     // Serial flash: provision WiFi/OTA over USB straight into the running
     // firmware (no build-time secrets). On success the device reports its
@@ -48,9 +49,16 @@ async function main() {
       if (provisioned && provisioned.otaPassword) {
         otaPassword = provisioned.otaPassword
       }
+      console.log()
     }
 
-    showCompletionMessage(args, finalResults, otaPassword, provisioned && provisioned.url)
+    showCompletionMessage(
+      args,
+      finalResults,
+      otaPassword,
+      provisioned && provisioned.url,
+      !!(provisioned && !provisioned.ssid && !provisioned.url),
+    )
   } catch (error) {
     logger.error('An unexpected error occurred:')
     console.error(error)
@@ -58,12 +66,14 @@ async function main() {
   }
 }
 
-function showCompletionMessage(args, results, otaPassword, deviceUrl = null) {
+function showCompletionMessage(args, results, otaPassword, deviceUrl = null, wifiPending = false) {
   logger.separator()
 
   if (otaPassword) {
     logger.info(`🔑 OTA upload password: ${colors.yellow}${otaPassword}${colors.reset}`)
     logger.info('Keep it safe — it is used to authenticate OTA uploads.')
+  } else {
+    logger.warning('No OTA password set — uploads are open to the local network.')
   }
 
   if (results.backendUploaded && results.frontendUploaded) {
@@ -78,6 +88,10 @@ function showCompletionMessage(args, results, otaPassword, deviceUrl = null) {
       logger.info(
         `Device is online at ${colors.yellow}${deviceUrl}${colors.reset} — check it to verify the update.`,
       )
+    } else if (wifiPending) {
+      logger.success('🎉 Setup and deployment completed successfully!')
+      logger.info('Your ESP32 parking assistant is now running.')
+      logger.info('WiFi is not set up yet — join the "SesameMaker" AP to configure it.')
     } else {
       logger.success('🎉 Setup and deployment completed successfully!')
       logger.info('Your ESP32 parking assistant is now running.')
@@ -86,9 +100,12 @@ function showCompletionMessage(args, results, otaPassword, deviceUrl = null) {
   } else if (results.backendUploaded || results.frontendUploaded) {
     logger.success('🔧 Setup completed with partial deployment')
     if (results.backendUploaded) {
-      logger.info('✓ Firmware uploaded - device should be running')
       if (!args.otaIP && deviceUrl) {
-        logger.info(`Device is online at ${colors.yellow}${deviceUrl}${colors.reset}.`)
+        logger.info(
+          `✓ Firmware uploaded - device is online at ${colors.yellow}${deviceUrl}${colors.reset}.`,
+        )
+      } else {
+        logger.info('✓ Firmware uploaded - device should be running')
       }
       if (!results.frontendUploaded && !args.backendOnly) {
         logger.warning(

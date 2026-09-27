@@ -235,6 +235,29 @@ async function provisionWifi(
   }
 }
 
+// After flashing + reset the USB device often re-enumerates under a new
+// /dev node (seen: usbmodem2101 -> usbmodem1101). If the preferred path is
+// gone, follow a single unambiguous USB-serial candidate; otherwise keep
+// the preferred path and let open fail loudly.
+async function resolvePortPath(preferredPath, serialLib = null) {
+  const { SerialPort } = serialLib || require('serialport')
+  let ports = []
+  try {
+    ports = await SerialPort.list()
+  } catch {
+    return preferredPath
+  }
+  const paths = ports.map((p) => p.path)
+  if (paths.includes(preferredPath)) {
+    return preferredPath
+  }
+  const cands = paths.filter((p) => /usbmodem|usbserial|slab|ttyusb|ttyacm|^com\d+$/i.test(p))
+  if (cands.length === 1) {
+    return cands[0]
+  }
+  return preferredPath
+}
+
 // One request/response exchange: open, send one RPC, await its RESULT
 // (or ERROR), close. Returns the RESULT frame. Tolerant of log noise.
 async function exchangeRpc(portPath, cmd, payload, { timeoutMs = 5000 } = {}, serialLib = null) {
@@ -323,6 +346,7 @@ module.exports = {
   wifiSettingsPayload,
   otaPasswordPayload,
   provisionWifi,
+  resolvePortPath,
   exchangeRpc,
   firstResultString,
   getOtaPassword,
