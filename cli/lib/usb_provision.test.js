@@ -23,9 +23,16 @@ function deps(over = {}) {
       getOtaPassword: async () => 'dev-pw',
       setOtaPassword: async () => {},
       provisionWifi: async () => ({ ssid: 'x', url: null }),
+      getNetworkState: async () => ({ flags: 2, urls: [] }),
+      scanNetworks: async () => [],
       ...over.improv,
     },
-    prompt: { askQuestion: async () => 'y', askPassword: async () => 'pw', ...over.prompt },
+    prompt: {
+      askQuestion: async () => 'y',
+      askPassword: async () => 'pw',
+      selectFromList: async () => null,
+      ...over.prompt,
+    },
     password: { generateOtaPassword: () => 'generated-pw', ...over.password },
   }
 }
@@ -190,4 +197,80 @@ test('provisionOverUsb waits out a rebooting device, then resolves', async () =>
   )
   assert.deepEqual(res, { ssid: null, url: null, otaPassword: 'dev-pw' })
   assert.equal(calls, 3)
+})
+
+test('provisionOverUsb skips WiFi entirely when already online', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  let prompted = false
+  let provisioned = false
+  const d = deps({
+    improv: {
+      getNetworkState: async () => ({ flags: 3, urls: ['http://192.168.1.10/'] }),
+      provisionWifi: async () => ((provisioned = true), {}),
+    },
+    prompt: {
+      askQuestion: async () => ((prompted = true), 'y'),
+      askPassword: async () => 'pw',
+      selectFromList: async () => ((prompted = true), 'x'),
+    },
+  })
+  const res = await provisionOverUsb({ serialPort: '/dev/x' }, { backendUploaded: true }, d)
+  assert.deepEqual(res, { ssid: null, url: 'http://192.168.1.10/', otaPassword: 'dev-pw' })
+  assert.equal(prompted, false)
+  assert.equal(provisioned, false)
+})
+
+test('provisionOverUsb picks strongest scanned network, deduped', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  let pickedOptions = null
+  const provisioned = []
+  const d = deps({
+    improv: {
+      scanNetworks: async () => [
+        { ssid: 'Far', rssi: -80, auth: true },
+        { ssid: 'Near', rssi: -50, auth: true },
+        { ssid: 'Near', rssi: -70, auth: true },
+        { ssid: 'Open', rssi: -60, auth: false },
+      ],
+      provisionWifi: async (port, opts) => {
+        provisioned.push(opts.ssid)
+        return { ssid: opts.ssid, url: null }
+      },
+    },
+    prompt: {
+      askQuestion: async (q) => {
+        if (q.startsWith('Configure')) return 'y'
+        throw new Error('should pick from scan, not prompt')
+      },
+      askPassword: async () => 'pw',
+      selectFromList: async (q, options) => {
+        pickedOptions = options
+        return options[0].value
+      },
+    },
+  })
+  const res = await provisionOverUsb({ serialPort: '/dev/x' }, { backendUploaded: true }, d)
+  assert.equal(res.ssid, 'Near')
+  assert.deepEqual(
+    pickedOptions.map((o) => o.value),
+    ['Near', 'Open', 'Far', null],
+  )
+  assert.deepEqual(provisioned, ['Near'])
+})
+
+test('provisionOverUsb falls back to manual SSID when scan is empty', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  const d = deps({
+    improv: { scanNetworks: async () => [] },
+    prompt: {
+      askQuestion: async (q) => (q === 'WiFi SSID:' ? 'typed' : 'y'),
+      askPassword: async () => 'pw',
+      selectFromList: async () => null,
+    },
+  })
+  const res = await provisionOverUsb({ serialPort: '/dev/x' }, { backendUploaded: true }, d)
+  assert.equal(res.ssid, 'typed')
 })

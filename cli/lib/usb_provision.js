@@ -76,6 +76,44 @@ async function resolveDeviceOtaPassword(port, uploadPassword, deps, retry) {
   return generated
 }
 
+// Scanned networks strongest-first in a picker, manual entry on decline,
+// empty scan, or scan failure. Returns '' when aborted.
+async function pickWifiSsid(port, improv, prompt) {
+  const spinner = new Spinner('Scanning WiFi networks...')
+  spinner.start()
+  let networks = []
+  try {
+    networks = await improv.scanNetworks(port)
+  } catch {
+    networks = []
+  } finally {
+    spinner.stop()
+  }
+  const strongest = new Map() // ssid -> best entry (repeaters share names)
+  for (const n of networks) {
+    if (!n.ssid) {
+      continue
+    }
+    const prev = strongest.get(n.ssid)
+    if (!prev || n.rssi > prev.rssi) {
+      strongest.set(n.ssid, n)
+    }
+  }
+  const ranked = [...strongest.values()].sort((a, b) => b.rssi - a.rssi)
+  if (ranked.length > 0) {
+    const options = ranked.map((n) => ({
+      label: `${n.ssid} (${n.rssi} dBm${n.auth ? '' : ', open'})`,
+      value: n.ssid,
+    }))
+    options.push({ label: 'Enter SSID manually…', value: null })
+    const picked = await prompt.selectFromList('Which WiFi network?', options)
+    if (picked) {
+      return picked
+    }
+  }
+  return (await prompt.askQuestion('WiFi SSID:')).trim()
+}
+
 async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry } = {}, deps = {}) {
   const improv = deps.improv || require('./improv')
   const prompt = deps.prompt || require('./prompt')
@@ -111,6 +149,12 @@ async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry }
   }
   // Printed once by the completion message — not here.
 
+  // Already online? Report the address and skip the whole WiFi dance.
+  const net = await improv.getNetworkState(port).catch(() => null)
+  if (net && net.flags & 1 && net.urls.length > 0) {
+    return { ssid: null, url: net.urls[0], otaPassword }
+  }
+
   if (!isInteractive()) {
     logger.info('Skipping WiFi setup (non-interactive session).')
     logger.info('Join the "SesameMaker" AP or re-run with a TTY to configure WiFi.')
@@ -124,7 +168,7 @@ async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry }
 
   let ssid = args.wifiSsid || ''
   if (!ssid) {
-    ssid = (await prompt.askQuestion('WiFi SSID:')).trim()
+    ssid = await pickWifiSsid(port, improv, prompt)
   }
   if (!ssid || Buffer.byteLength(ssid, 'utf8') > 32) {
     logger.warning('WiFi setup aborted (SSID empty or over 32 bytes).')

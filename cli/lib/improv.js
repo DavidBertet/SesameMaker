@@ -350,6 +350,64 @@ async function getNetworkState(portPath, opts = {}, serialLib = null) {
   return { flags: parseInt(strs[0] || '0', 10), urls: strs.slice(1) }
 }
 
+// Visible networks as [{ ssid, rssi, auth }], in scan order. Ends on the
+// empty trailer (or timeout). Throws on device error.
+async function scanNetworks(portPath, { timeoutMs = 20000 } = {}, serialLib = null) {
+  const { SerialPort } = serialLib || require('serialport')
+  const port = new SerialPort({ path: portPath, baudRate: 115200, autoOpen: false, hupcl: false })
+  let buf = Buffer.alloc(0)
+  const seen = []
+  const onData = (chunk) => {
+    buf = Buffer.concat([buf, Buffer.from(chunk)])
+    const { frames, rest } = parseFrames(buf)
+    buf = rest
+    seen.push(...frames)
+  }
+  await new Promise((resolve, reject) => port.open((err) => (err ? reject(err) : resolve())))
+  try {
+    await new Promise((resolve, reject) =>
+      port.write(rpcCommand(RPC.GET_NETWORKS, []), (err) => (err ? reject(err) : resolve())),
+    )
+    port.on('data', onData)
+    const networks = []
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) {
+        throw new Error('timed out waiting for network scan')
+      }
+      const frame = await waitFor(
+        () => {
+          const i = seen.findIndex((f) => f.type === TYPE.RESULT || f.type === TYPE.ERROR)
+          return i === -1 ? null : seen.splice(i, 1)[0]
+        },
+        remaining,
+        'network scan',
+      )
+      expectResult(frame, 'network scan')
+      if (frame.data.length <= 2) {
+        break // empty trailer: end of list
+      }
+      let pos = 2
+      const strs = []
+      while (pos < frame.data.length) {
+        const slen = frame.data[pos++]
+        strs.push(frame.data.slice(pos, pos + slen).toString('utf8'))
+        pos += slen
+      }
+      networks.push({
+        ssid: strs[0] || '',
+        rssi: parseInt(strs[1] || '-100', 10) || -100,
+        auth: strs[2] === 'YES',
+      })
+    }
+    return networks
+  } finally {
+    port.removeListener('data', onData)
+    await new Promise((resolve) => port.close(() => resolve()))
+  }
+}
+
 module.exports = {
   TYPE,
   STATE,
@@ -369,4 +427,5 @@ module.exports = {
   getOtaPassword,
   setOtaPassword,
   getNetworkState,
+  scanNetworks,
 }

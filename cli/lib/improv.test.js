@@ -198,3 +198,40 @@ test('getNetworkState parses flags and urls', async () => {
     urls: ['http://192.168.1.10/'],
   })
 })
+
+test('scanNetworks collects triples until the empty trailer', async () => {
+  const impl = loadImprov()
+  const { buildFrame, parseFrames, TYPE, RPC } = impl
+  const entry = (ssid, rssi, auth) => {
+    const parts = [Buffer.from(ssid, 'utf8'), Buffer.from(rssi, 'utf8'), Buffer.from(auth, 'utf8')]
+    const body = Buffer.concat([
+      Buffer.from([RPC.GET_NETWORKS, parts.reduce((n, p) => n + 1 + p.length, 0)]),
+      ...parts.flatMap((p) => [Buffer.from([p.length]), p]),
+    ])
+    return buildFrame(TYPE.RESULT, body)
+  }
+  const lib = {
+    SerialPort: class extends require('node:events').EventEmitter {
+      open(cb) {
+        setImmediate(cb)
+      }
+      write(data, cb) {
+        setImmediate(cb)
+        const { frames } = parseFrames(Buffer.from(data))
+        if (frames.some((f) => f.type === TYPE.RPC && f.data[0] === RPC.GET_NETWORKS)) {
+          for (const chunk of [entry('A', '-50', 'YES'), entry('B', '-80', 'NO')]) {
+            setImmediate(() => this.emit('data', chunk))
+          }
+          setImmediate(() => this.emit('data', buildFrame(TYPE.RESULT, [RPC.GET_NETWORKS, 0])))
+        }
+      }
+      close(cb) {
+        setImmediate(cb)
+      }
+    },
+  }
+  assert.deepEqual(await impl.scanNetworks('/dev/x', {}, lib), [
+    { ssid: 'A', rssi: -50, auth: true },
+    { ssid: 'B', rssi: -80, auth: false },
+  ])
+})
