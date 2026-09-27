@@ -180,6 +180,40 @@ static void handle_wifi_settings(const uint8_t *payload, size_t plen)
     }
 }
 
+static void handle_get_networks(void)
+{
+    // Blocking scan, same call the portal's wifi_scan uses. Each network
+    // goes out as its own [ssid, rssi, auth] response; the empty trailer
+    // ends the list (ESP Web Tools renders its picker from this).
+    if (esp_wifi_scan_start(NULL, true) != ESP_OK)
+    {
+        send_error(IMPROV_ERROR_UNKNOWN);
+        send_result(IMPROV_RPC_GET_NETWORKS, NULL, 0);
+        return;
+    }
+    uint16_t ap_num = 10;
+    wifi_ap_record_t ap_records[10];
+    if (esp_wifi_scan_get_ap_records(&ap_num, ap_records) != ESP_OK)
+    {
+        send_error(IMPROV_ERROR_UNKNOWN);
+        send_result(IMPROV_RPC_GET_NETWORKS, NULL, 0);
+        return;
+    }
+    ESP_LOGI(TAG, "Scan found %u networks", (unsigned)ap_num);
+    for (uint16_t i = 0; i < ap_num; i++)
+    {
+        char rssi[8];
+        snprintf(rssi, sizeof(rssi), "%d", ap_records[i].rssi);
+        const char *entry[] = {
+            (const char *)ap_records[i].ssid,
+            rssi,
+            ap_records[i].authmode == WIFI_AUTH_OPEN ? "NO" : "YES",
+        };
+        send_result(IMPROV_RPC_GET_NETWORKS, entry, 3);
+    }
+    send_result(IMPROV_RPC_GET_NETWORKS, NULL, 0);
+}
+
 static void handle_set_ota_password(const uint8_t *payload, size_t plen)
 {
     char pass[IMPROV_OTA_PASS_MAX + 1];
@@ -228,6 +262,9 @@ static void handle_rpc(const uint8_t *data, size_t len)
     case IMPROV_RPC_GET_INFO:
         send_device_info();
         break;
+    case IMPROV_RPC_GET_NETWORKS:
+        handle_get_networks();
+        break;
     case IMPROV_RPC_SET_OTA_PASSWORD:
         handle_set_ota_password(payload, plen);
         break;
@@ -240,8 +277,8 @@ static void handle_rpc(const uint8_t *data, size_t len)
         break;
     }
     default:
-        // Covers unimplemented standard commands (scan, hostname, ...) as
-        // well as unknown ones: stock clients fall back gracefully.
+        // Unimplemented standard commands (hostname, ...) and unknown ones:
+        // stock clients fall back gracefully.
         send_error(IMPROV_ERROR_UNKNOWN_RPC);
         break;
     }

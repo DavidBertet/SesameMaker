@@ -21,6 +21,7 @@ const RPC = {
   WIFI_SETTINGS: 0x01,
   GET_STATE: 0x02,
   GET_INFO: 0x03,
+  GET_NETWORKS: 0x04,
   SET_OTA_PASSWORD: 0x10, // SesameMaker extension (see improv.h)
   GET_OTA_PASSWORD: 0x11, // SesameMaker extension (read-back for install.sh)
 }
