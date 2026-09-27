@@ -312,30 +312,6 @@ async function discoverNetworkDevices({ timeout = 400 } = {}) {
   return Array.from(found.values())
 }
 
-// Poll the network for a device that just (re)booted — e.g. after a serial
-// flash with fresh WiFi credentials the device reboots, joins WiFi via DHCP
-// and shows up under a new, unknown IP. Scans repeatedly until at least one
-// device answers or attempts are exhausted. `discoverFn` is injectable for
-// tests. Returns the found devices (possibly []).
-async function waitForDeviceOnNetwork({
-  attempts = 6,
-  intervalMs = 10000,
-  timeout = 400,
-  discoverFn = discoverNetworkDevices,
-} = {}) {
-  let found = []
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    found = await discoverFn({ timeout })
-    if (found.length > 0) {
-      return found
-    }
-    if (attempt < attempts) {
-      await new Promise((resolve) => setTimeout(resolve, intervalMs))
-    }
-  }
-  return found
-}
-
 module.exports = {
   DEVICE_MARKER,
   ESPRESSIF_OUIS,
@@ -351,5 +327,4 @@ module.exports = {
   decodeResponseBody,
   probeAll,
   discoverNetworkDevices,
-  waitForDeviceOnNetwork,
 }

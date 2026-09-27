@@ -10,8 +10,6 @@ const { buildBackendPIO } = require('./lib/pio')
 const { configureBackend } = require('./lib/backend')
 const { uploadToDevice } = require('./lib/upload')
 const { provisionOverUsb } = require('./lib/usb_provision')
-const { waitForDeviceOnNetwork } = require('./lib/discover')
-const { Spinner } = require('./lib/spinner')
 
 async function main() {
   try {
@@ -39,7 +37,8 @@ async function main() {
     const finalResults = await uploadToDevice(args)
 
     // Serial flash: provision WiFi/OTA over USB straight into the running
-    // firmware (no build-time secrets), then find where it landed on WiFi.
+    // firmware (no build-time secrets). On success the device reports its
+    // own URL — no network sweep needed.
     let provisioned = null
     if (!args.otaIP && finalResults.backendUploaded) {
       provisioned = await provisionOverUsb(args, {
@@ -51,30 +50,7 @@ async function main() {
       }
     }
 
-    // Serial flash with WiFi: the device reboots, joins WiFi via DHCP under a
-    // new unknown IP. Poll the network so we can print where it landed.
-    let discoveredDevices = []
-    const joinSsid = provisioned && provisioned.ssid
-    if (
-      !args.otaIP &&
-      joinSsid &&
-      (finalResults.backendUploaded || finalResults.frontendUploaded)
-    ) {
-      const spinner = new Spinner(
-        `Waiting for device to join "${joinSsid}" (up to ~60s)...`,
-      )
-      spinner.start()
-      discoveredDevices = await waitForDeviceOnNetwork()
-      if (discoveredDevices.length > 0) {
-        spinner.stop(true, 'Device found on the network!')
-      } else {
-        spinner.stop()
-        logger.warning('Device did not show up on the network yet.')
-      }
-      console.log()
-    }
-
-    showCompletionMessage(args, finalResults, otaPassword, discoveredDevices)
+    showCompletionMessage(args, finalResults, otaPassword, provisioned && provisioned.url)
   } catch (error) {
     logger.error('An unexpected error occurred:')
     console.error(error)
@@ -82,7 +58,7 @@ async function main() {
   }
 }
 
-function showCompletionMessage(args, results, otaPassword, discoveredDevices = []) {
+function showCompletionMessage(args, results, otaPassword, deviceUrl = null) {
   logger.separator()
 
   if (otaPassword) {
@@ -96,18 +72,12 @@ function showCompletionMessage(args, results, otaPassword, discoveredDevices = [
       logger.info(
         `Check the web interface at ${colors.yellow}http://${args.otaIP}${colors.reset} to verify the update.`,
       )
-    } else if (discoveredDevices.length === 1) {
+    } else if (deviceUrl) {
       logger.success('🎉 Setup and deployment completed successfully!')
       logger.info('Your ESP32 parking assistant is now running.')
       logger.info(
-        `Device is online at ${colors.yellow}http://${discoveredDevices[0].ip}${colors.reset} — check it to verify the update.`,
+        `Device is online at ${colors.yellow}${deviceUrl}${colors.reset} — check it to verify the update.`,
       )
-    } else if (discoveredDevices.length > 1) {
-      logger.success('🎉 Setup and deployment completed successfully!')
-      logger.info('Your ESP32 parking assistant is now running. Devices found on the network:')
-      for (const dev of discoveredDevices) {
-        logger.info(`  • ${colors.yellow}http://${dev.ip}${colors.reset}`)
-      }
     } else {
       logger.success('🎉 Setup and deployment completed successfully!')
       logger.info('Your ESP32 parking assistant is now running.')
@@ -117,14 +87,8 @@ function showCompletionMessage(args, results, otaPassword, discoveredDevices = [
     logger.success('🔧 Setup completed with partial deployment')
     if (results.backendUploaded) {
       logger.info('✓ Firmware uploaded - device should be running')
-      if (!args.otaIP && discoveredDevices.length === 1) {
-        logger.info(
-          `Device is online at ${colors.yellow}http://${discoveredDevices[0].ip}${colors.reset}.`,
-        )
-      } else if (!args.otaIP && discoveredDevices.length > 1) {
-        for (const dev of discoveredDevices) {
-          logger.info(`  • ${colors.yellow}http://${dev.ip}${colors.reset}`)
-        }
+      if (!args.otaIP && deviceUrl) {
+        logger.info(`Device is online at ${colors.yellow}${deviceUrl}${colors.reset}.`)
       }
       if (!results.frontendUploaded && !args.backendOnly) {
         logger.warning(
