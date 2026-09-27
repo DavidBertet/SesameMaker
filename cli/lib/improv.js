@@ -195,20 +195,25 @@ async function provisionWifi(
       throw new Error(`device refused: ${ERROR_NAMES[code] || `code ${code}`}`)
     }
 
-    // The URL result trails the PROVISIONED state — give it a moment.
+    // The URL result trails the PROVISIONED state - but it can lose a
+    // checksum race against log output on the shared line, so re-request
+    // it (GET_STATE re-triggers the settings response while provisioned)
+    // instead of accepting a single miss.
     let url = null
-    const result = await waitFor(
-      () => take((f) => f.type === TYPE.RESULT) || take((f) => f.type === TYPE.ERROR),
-      5000,
-      'device URL',
-    ).catch(() => null)
-    if (result && result.type === TYPE.ERROR) {
-      throw new Error(`device refused: ${ERROR_NAMES[result.data[0]] || 'unknown'}`)
-    }
-    if (result && result.data.length > 2) {
-      const pos = 2
-      const slen = result.data[pos]
-      url = result.data.slice(pos + 1, pos + 1 + slen).toString('utf8') || null
+    for (let attempt = 0; attempt < 3 && !url; attempt++) {
+      if (attempt > 0) {
+        await write(rpcCommand(RPC.GET_STATE, []))
+      }
+      const result = await waitFor(
+        () => take((f) => f.type === TYPE.RESULT),
+        4000,
+        'device URL',
+      ).catch(() => null)
+      if (result && result.data.length > 2) {
+        const pos = 2
+        const slen = result.data[pos]
+        url = result.data.slice(pos + 1, pos + 1 + slen).toString('utf8') || null
+      }
     }
 
     if (otaPassword !== undefined) {
