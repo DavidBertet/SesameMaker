@@ -25,6 +25,7 @@ const RPC = {
   GET_NETSTATE: 0x07,
   SET_OTA_PASSWORD: 0x10, // SesameMaker extension (see improv.h)
   GET_OTA_PASSWORD: 0x11, // SesameMaker extension (read-back for install.sh)
+  NETWORK_RESET: 0x12, // SesameMaker extension (forget WiFi, clear OTA pw, reboot)
 }
 
 const ERROR_NAMES = {
@@ -305,6 +306,13 @@ function expectResult(frame, what) {
   return frame
 }
 
+// Network reset: forget WiFi, delete the OTA password key, reboot into the
+// setup AP. The device acks before rebooting. Throws on refusal/timeout.
+async function networkReset(portPath, opts = {}, serialLib = null) {
+  const frame = await exchangeRpc(portPath, RPC.NETWORK_RESET, [], opts, serialLib)
+  expectResult(frame, 'network reset')
+}
+
 // First string of a RESULT payload ([cmd][len][slen str]...), or ''.
 function firstResultString(frame) {
   if (frame.data.length < 3) return ''
@@ -426,6 +434,7 @@ module.exports = {
   firstResultString,
   getOtaPassword,
   setOtaPassword,
+  networkReset,
   getNetworkState,
   scanNetworks,
 }

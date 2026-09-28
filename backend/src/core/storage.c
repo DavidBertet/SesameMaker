@@ -121,6 +121,25 @@ esp_err_t read_str(const char *key, char *buf, size_t bufsize)
   return ret;
 }
 
+esp_err_t delete_str(const char *key)
+{
+  nvs_handle_t nvs_handle;
+  esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+  if (ret != ESP_OK)
+  {
+    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(ret));
+    return ret;
+  }
+  ret = nvs_erase_key(nvs_handle, key);
+  if (ret == ESP_OK)
+  {
+    ret = nvs_commit(nvs_handle);
+  }
+
+  nvs_close(nvs_handle);
+  return ret;
+}
+
 esp_err_t write_str(const char *key, const char *value)
 {
   nvs_handle_t nvs_handle;

@@ -2,8 +2,8 @@
 
 <!-- USB setup over WebSerial (Improv protocol): connect a device by cable,
   read its identity/version/network state, join Wi-Fi from a scan or a
-  manual SSID, and manage the OTA password. Demo builds only (dev server +
-  GitHub Pages) — never shipped on the device itself. -->
+  manual SSID, manage the OTA password, and reset network identity.
+  Demo builds only (dev server + GitHub Pages) — never shipped on the device itself. -->
 <script>
   import { onDestroy } from 'svelte'
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
@@ -17,7 +17,7 @@
   import { Badge } from '$lib/components/ui/badge'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
-  import { RefreshCw, PlugZap, Wifi, KeyRound, Search } from 'lucide-svelte'
+  import { RefreshCw, PlugZap, Wifi, KeyRound, Search, Trash2 } from 'lucide-svelte'
 
   const supported = typeof navigator !== 'undefined' && 'serial' in navigator
 
@@ -37,6 +37,8 @@
   let wifiEditing = $state(false)
   // Override field hidden until "Change password".
   let otaEditing = $state(false)
+  // Two-click confirm for the destructive reset below.
+  let resetArmed = $state(false)
 
   const online = $derived(net !== null && (net.flags & 1) === 1 && net.urls.length > 0)
   const showWifiForm = $derived(!online || wifiEditing)
@@ -91,6 +93,7 @@
     scanning = false
     otaEditing = false
     otaNew = ''
+    resetArmed = false
     if (s) {
       try {
         await s.close()
@@ -202,6 +205,20 @@
   function cancelOtaEdit() {
     otaEditing = false
     otaNew = ''
+  }
+
+  async function networkReset() {
+    if (!resetArmed) {
+      resetArmed = true
+      return
+    }
+    resetArmed = false
+    await run(async () => {
+      await session.networkReset()
+      // Device reboots into the setup AP; the cable session is gone.
+      await disconnect()
+      toast.success('Device reset — rebooting into the "SesameMaker" setup AP.')
+    })
   }
 </script>
 
@@ -447,6 +464,29 @@
                 Cancel
               </Button>
             </div>
+          {/if}
+        </Card.Content>
+      </Card.Root>
+
+      <Card.Root class="border-destructive/40">
+        <Card.Header class="pb-3">
+          <Card.Title class="text-lg flex items-center gap-2">
+            <Trash2 class="size-4" />
+            Network reset
+          </Card.Title>
+          <Card.Description>
+            Forgets Wi-Fi, clears the OTA password and reboots into the setup AP. Device settings
+            stay.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="destructive" onclick={networkReset} disabled={busy}>
+            {resetArmed ? 'Click again to confirm reset' : 'Network reset…'}
+          </Button>
+          {#if resetArmed}
+            <Button size="sm" variant="ghost" onclick={() => (resetArmed = false)} disabled={busy}>
+              Cancel
+            </Button>
           {/if}
         </Card.Content>
       </Card.Root>

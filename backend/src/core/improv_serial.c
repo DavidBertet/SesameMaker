@@ -11,6 +11,7 @@
 
 #include "driver/usb_serial_jtag.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
@@ -260,6 +261,21 @@ static void handle_set_ota_password(const uint8_t *payload, size_t plen)
     send_result(IMPROV_RPC_SET_OTA_PASSWORD, NULL, 0);
 }
 
+static void handle_network_reset(void)
+{
+    // Network identity only: door calibration and app settings stay.
+    // Deleting (not clearing) the key makes the next boot generate a fresh
+    // random OTA password; forgetting STA creds drops the device back to
+    // the "SesameMaker" setup AP.
+    delete_str("ota_password");
+    wifi_stop_sta_connection();
+    ESP_LOGW(TAG, "Network reset over USB: WiFi forgotten, OTA password cleared, rebooting");
+    send_result(IMPROV_RPC_NETWORK_RESET, NULL, 0);
+    send_state(IMPROV_STATE_AUTHORIZED);
+    vTaskDelay(pdMS_TO_TICKS(500)); // let the USB reply flush before reset
+    esp_restart();
+}
+
 static void handle_rpc(const uint8_t *data, size_t len)
 {
     uint8_t cmd;
@@ -302,6 +318,9 @@ static void handle_rpc(const uint8_t *data, size_t len)
         memset(current, 0, sizeof(current));
         break;
     }
+    case IMPROV_RPC_NETWORK_RESET:
+        handle_network_reset();
+        break;
     default:
         // Unimplemented standard commands (hostname, ...) and unknown ones:
         // stock clients fall back gracefully.

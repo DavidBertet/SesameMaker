@@ -13,8 +13,13 @@
 // through noise.
 //
 // SesameMaker extension: RPC 0x10 sets the OTA upload password
-// ([pass_len][pass], 0 clears it). Stock clients never send it and answer
-// "unknown RPC" if asked; our CLI speaks it.
+// ([pass_len][pass], 0 clears it). RPC 0x11 reads it back (USB-physical
+// only; anyone holding the cable could overwrite it or flash anything
+// anyway, so reading adds no capability — it lets install.sh print the
+// effective password). RPC 0x12 resets network identity (forgets
+// WiFi, deletes the OTA password key so a fresh one generates at next
+// boot, then reboots). Stock clients never send them and answer
+// "unknown RPC" if asked; our CLI speaks them.
 
 #pragma once
 
@@ -56,6 +61,9 @@
 // the cable could overwrite it or flash anything anyway, so reading adds
 // no capability — it lets install.sh print the effective password).
 #define IMPROV_RPC_GET_OTA_PASSWORD 0x11
+// SesameMaker extension: network reset (empty payload, empty result).
+// Forgets WiFi, deletes the OTA password key, then reboots.
+#define IMPROV_RPC_NETWORK_RESET 0x12
 
 #define IMPROV_SSID_MAX 32
 #define IMPROV_PASS_MAX 64

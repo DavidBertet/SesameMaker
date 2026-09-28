@@ -67,6 +67,8 @@ Options:
                               (device target is always confirmed interactively)
   -f, --frontend-only         Build/deploy frontend only
   -b, --backend-only          Build/deploy backend only
+      --network-reset         Forget WiFi, clear OTA password, reboot (USB only,
+                              no build; asks for typed confirmation unless -y)
   -d, --debug                 Verbose output (stream full build logs, timings)
   -h, --help                  Show this help message
 

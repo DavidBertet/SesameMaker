@@ -24,6 +24,12 @@ function validateArgs(parsedArgs) {
     process.exit(1)
   }
 
+  // Network reset is a serial-only recovery op (cable is the auth).
+  if (parsedArgs.networkReset && parsedArgs.otaIP) {
+    console.error('Error: --network-reset cannot target --ota (use USB/serial)')
+    process.exit(1)
+  }
+
   if (parsedArgs.otaIP) {
     const ipv4Regex = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/
     if (!ipv4Regex.test(parsedArgs.otaIP)) {
@@ -79,6 +85,7 @@ function parseArgs() {
     autoYes: args.includes('-y') || args.includes('--yes'),
     frontendOnly: args.includes('-f') || args.includes('--frontend-only'),
     backendOnly: args.includes('-b') || args.includes('--backend-only'),
+    networkReset: args.includes('--network-reset'),
     hasUploadPassword: passwordIndex !== -1,
     uploadPassword: passwordIndex !== -1 ? getParameterValue(args, passwordIndex) : null,
     wifiSsid: wifiSsidIndex !== -1 ? getParameterValue(args, wifiSsidIndex) : null,

@@ -18,6 +18,7 @@ export const RPC = {
   GET_NETSTATE: 0x07,
   SET_OTA_PASSWORD: 0x10,
   GET_OTA_PASSWORD: 0x11,
+  NETWORK_RESET: 0x12,
 }
 
 const ERROR_NAMES = {
@@ -324,6 +325,12 @@ export class ImprovSession {
 
   async setOtaPassword(password) {
     await this.exchange(RPC.SET_OTA_PASSWORD, otaPasswordPayload(password))
+  }
+
+  // Forget WiFi, clear the OTA password, reboot into the setup AP.
+  // The device acks before rebooting; the session drops right after.
+  async networkReset() {
+    await this.exchange(RPC.NETWORK_RESET, new Uint8Array(0))
   }
 
   async getNetworkState() {

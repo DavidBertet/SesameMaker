@@ -20,6 +20,7 @@ esp_err_t write_u8(const char *key, uint8_t value);
 
 esp_err_t read_str(const char *key, char *buf, size_t bufsize);
 esp_err_t write_str(const char *key, const char *value);
+esp_err_t delete_str(const char *key);
 
 esp_err_t read_blob(const char *key, void *outValue, size_t *required_size);
 esp_err_t write_blob(const char *key, const void *value, size_t required_size);

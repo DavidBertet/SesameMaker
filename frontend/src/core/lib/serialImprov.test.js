@@ -163,6 +163,27 @@ test('session recovers when the reader dies mid-stream', async () => {
   }
 })
 
+test('networkReset sends 0x12 and resolves on the empty ack', async () => {
+  assert.equal(RPC.NETWORK_RESET, 0x12)
+  const seen = []
+  const port = fakePort((chunk, emit) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type === TYPE.RPC && f.data[0] === RPC.NETWORK_RESET) {
+        seen.push(f.data[0])
+        setImmediate(() => emit(buildFrame(TYPE.RESULT, Uint8Array.of(RPC.NETWORK_RESET, 0x00))))
+      }
+    }
+  })
+  const session = new ImprovSession(port)
+  try {
+    await session.networkReset()
+    assert.deepEqual(seen, [RPC.NETWORK_RESET])
+  } finally {
+    await session.close()
+  }
+})
+
 test('getOtaPassword resolves null on silence (old firmware)', async () => {
   const port = fakePort(() => {})
   const session = new ImprovSession(port)
