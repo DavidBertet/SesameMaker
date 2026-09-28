@@ -24,9 +24,13 @@ function validateArgs(parsedArgs) {
     process.exit(1)
   }
 
-  // Network reset is a serial-only recovery op (cable is the auth).
+  // Resets are serial-only recovery ops (cable is the auth).
   if (parsedArgs.networkReset && parsedArgs.otaIP) {
     console.error('Error: --network-reset cannot target --ota (use USB/serial)')
+    process.exit(1)
+  }
+  if (parsedArgs.factoryReset && parsedArgs.otaIP) {
+    console.error('Error: --factory-reset cannot target --ota (use USB/serial)')
     process.exit(1)
   }
 
@@ -86,6 +90,7 @@ function parseArgs() {
     frontendOnly: args.includes('-f') || args.includes('--frontend-only'),
     backendOnly: args.includes('-b') || args.includes('--backend-only'),
     networkReset: args.includes('--network-reset'),
+    factoryReset: args.includes('--factory-reset'),
     hasUploadPassword: passwordIndex !== -1,
     uploadPassword: passwordIndex !== -1 ? getParameterValue(args, passwordIndex) : null,
     wifiSsid: wifiSsidIndex !== -1 ? getParameterValue(args, wifiSsidIndex) : null,

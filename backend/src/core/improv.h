@@ -18,7 +18,9 @@
 // anyway, so reading adds no capability — it lets install.sh print the
 // effective password). RPC 0x12 resets network identity (forgets
 // WiFi, deletes the OTA password key so a fresh one generates at next
-// boot, then reboots). Stock clients never send them and answer
+// boot, then reboots). RPC 0x13 is the full factory reset: erases default
+// NVS (WiFi + all app settings) and the Zigbee/HomeKit partitions, then
+// reboots. Stock clients never send them and answer
 // "unknown RPC" if asked; our CLI speaks them.
 
 #pragma once
@@ -64,6 +66,10 @@
 // SesameMaker extension: network reset (empty payload, empty result).
 // Forgets WiFi, deletes the OTA password key, then reboots.
 #define IMPROV_RPC_NETWORK_RESET 0x12
+// SesameMaker extension: full factory reset (empty payload, empty result).
+// Erases default NVS (WiFi + all app settings) and the Zigbee/HomeKit
+// partitions, then reboots.
+#define IMPROV_RPC_FACTORY_RESET 0x13
 
 #define IMPROV_SSID_MAX 32
 #define IMPROV_PASS_MAX 64

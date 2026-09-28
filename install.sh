@@ -69,6 +69,9 @@ Options:
   -b, --backend-only          Build/deploy backend only
       --network-reset         Forget WiFi, clear OTA password, reboot (USB only,
                               no build; asks for typed confirmation unless -y)
+      --factory-reset         Erase everything (WiFi, settings, Zigbee, HomeKit),
+                              reboot to first boot (USB only, no build; type
+                              ERASE to confirm unless -y)
   -d, --debug                 Verbose output (stream full build logs, timings)
   -h, --help                  Show this help message
 

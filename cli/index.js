@@ -11,6 +11,7 @@ const { configureBackend } = require('./lib/backend')
 const { uploadToDevice } = require('./lib/upload')
 const { provisionOverUsb } = require('./lib/usb_provision')
 const { runNetworkReset } = require('./lib/network_reset')
+const { runFactoryReset } = require('./lib/factory_reset')
 
 async function main() {
   try {
@@ -29,9 +30,13 @@ async function main() {
 
     await checkPrerequisites(args)
 
-    // Recovery op: no build, no upload — reset and exit.
+    // Recovery ops: no build, no upload — reset and exit.
     if (args.networkReset) {
       const ok = await runNetworkReset(args)
+      process.exit(ok ? 0 : 1)
+    }
+    if (args.factoryReset) {
+      const ok = await runFactoryReset(args)
       process.exit(ok ? 0 : 1)
     }
 

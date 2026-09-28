@@ -19,6 +19,7 @@ export const RPC = {
   SET_OTA_PASSWORD: 0x10,
   GET_OTA_PASSWORD: 0x11,
   NETWORK_RESET: 0x12,
+  FACTORY_RESET: 0x13,
 }
 
 const ERROR_NAMES = {
@@ -331,6 +332,12 @@ export class ImprovSession {
   // The device acks before rebooting; the session drops right after.
   async networkReset() {
     await this.exchange(RPC.NETWORK_RESET, new Uint8Array(0))
+  }
+
+  // Erase everything (WiFi, all settings, Zigbee network, HomeKit
+  // pairing), reboot to first-boot defaults. Acks before erasing.
+  async factoryReset() {
+    await this.exchange(RPC.FACTORY_RESET, new Uint8Array(0))
   }
 
   async getNetworkState() {

@@ -13,6 +13,7 @@
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -276,6 +277,21 @@ static void handle_network_reset(void)
     esp_restart();
 }
 
+static void handle_factory_reset(void)
+{
+    // Full wipe, acked before the erase (NVS is gone right after). Default
+    // partition holds WiFi + the app "storage" namespace (door, MQTT,
+    // protocol, OTA password); zb_storage the Zigbee dataset; hk_storage
+    // HomeKit pairing + setup code. Reboot lands on first-boot defaults.
+    send_result(IMPROV_RPC_FACTORY_RESET, NULL, 0);
+    ESP_LOGW(TAG, "Factory reset over USB: erasing all NVS, rebooting");
+    nvs_flash_erase();
+    nvs_flash_erase_partition("zb_storage");
+    nvs_flash_erase_partition("hk_storage");
+    vTaskDelay(pdMS_TO_TICKS(500)); // let the USB reply flush before reset
+    esp_restart();
+}
+
 static void handle_rpc(const uint8_t *data, size_t len)
 {
     uint8_t cmd;
@@ -320,6 +336,9 @@ static void handle_rpc(const uint8_t *data, size_t len)
     }
     case IMPROV_RPC_NETWORK_RESET:
         handle_network_reset();
+        break;
+    case IMPROV_RPC_FACTORY_RESET:
+        handle_factory_reset();
         break;
     default:
         // Unimplemented standard commands (hostname, ...) and unknown ones:

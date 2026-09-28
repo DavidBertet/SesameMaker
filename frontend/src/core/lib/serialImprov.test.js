@@ -184,6 +184,27 @@ test('networkReset sends 0x12 and resolves on the empty ack', async () => {
   }
 })
 
+test('factoryReset sends 0x13 and resolves on the empty ack', async () => {
+  assert.equal(RPC.FACTORY_RESET, 0x13)
+  const seen = []
+  const port = fakePort((chunk, emit) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type === TYPE.RPC && f.data[0] === RPC.FACTORY_RESET) {
+        seen.push(f.data[0])
+        setImmediate(() => emit(buildFrame(TYPE.RESULT, Uint8Array.of(RPC.FACTORY_RESET, 0x00))))
+      }
+    }
+  })
+  const session = new ImprovSession(port)
+  try {
+    await session.factoryReset()
+    assert.deepEqual(seen, [RPC.FACTORY_RESET])
+  } finally {
+    await session.close()
+  }
+})
+
 test('getOtaPassword resolves null on silence (old firmware)', async () => {
   const port = fakePort(() => {})
   const session = new ImprovSession(port)

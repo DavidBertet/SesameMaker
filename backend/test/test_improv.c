@@ -181,11 +181,12 @@ static void test_result_payload(void)
     assert(improv_result_payload(IMPROV_RPC_GET_INFO, strs, 4, tiny, sizeof(tiny)) == 0);
 }
 
-static void test_network_reset_rpc_round_trip(void)
+// Empty-payload reset RPCs (network 0x12, factory 0x13): the request frame
+// parses back to the same cmd, and the empty ack is the 2-byte [cmd 00].
+static void test_reset_rpc_round_trip(uint8_t reset_cmd)
 {
     tests_run++;
-    // Empty payload request: data [0x12 00], parses back to the same cmd.
-    uint8_t rpc[] = {IMPROV_RPC_NETWORK_RESET, 0x00};
+    uint8_t rpc[] = {reset_cmd, 0x00};
     uint8_t frame[32];
     size_t n = improv_frame(IMPROV_TYPE_RPC, rpc, sizeof(rpc), frame, sizeof(frame));
     assert(n > 0);
@@ -197,11 +198,10 @@ static void test_network_reset_rpc_round_trip(void)
     const uint8_t *payload;
     size_t plen;
     assert(improv_rpc_parse(improv_frame_data(&p), improv_frame_len(&p), &cmd, &payload, &plen));
-    assert(cmd == IMPROV_RPC_NETWORK_RESET && plen == 0);
-    // Empty result ack encodes to the 2-byte [cmd 00] payload.
+    assert(cmd == reset_cmd && plen == 0);
     uint8_t out[64];
-    assert(improv_result_payload(IMPROV_RPC_NETWORK_RESET, NULL, 0, out, sizeof(out)) == 2);
-    assert(out[0] == IMPROV_RPC_NETWORK_RESET && out[1] == 0x00);
+    assert(improv_result_payload(reset_cmd, NULL, 0, out, sizeof(out)) == 2);
+    assert(out[0] == reset_cmd && out[1] == 0x00);
 }
 
 int main(void)
@@ -215,7 +215,9 @@ int main(void)
     test_wifi_settings_parse();
     test_ota_password_parse();
     test_result_payload();
-    test_network_reset_rpc_round_trip();
+    assert(IMPROV_RPC_NETWORK_RESET == 0x12 && IMPROV_RPC_FACTORY_RESET == 0x13);
+    test_reset_rpc_round_trip(IMPROV_RPC_NETWORK_RESET);
+    test_reset_rpc_round_trip(IMPROV_RPC_FACTORY_RESET);
     printf("test_improv: %d tests passed\n", tests_run);
     return 0;
 }

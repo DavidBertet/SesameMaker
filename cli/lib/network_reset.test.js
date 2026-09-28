@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 
-function loadFactoryReset() {
+function loadNetworkReset() {
   delete require.cache[require.resolve('./network_reset.js')]
   return require('./network_reset.js')
 }
@@ -23,7 +23,7 @@ function deps(over = {}) {
 }
 
 test('runNetworkReset aborts without a USB port', async () => {
-  const { runNetworkReset } = loadFactoryReset()
+  const { runNetworkReset } = loadNetworkReset()
   let called = false
   const d = deps({
     improv: { resolvePortPath: async () => null, networkReset: async () => ((called = true), {}) },
@@ -33,7 +33,7 @@ test('runNetworkReset aborts without a USB port', async () => {
 })
 
 test('runNetworkReset requires typed RESET without -y', async () => {
-  const { runNetworkReset } = loadFactoryReset()
+  const { runNetworkReset } = loadNetworkReset()
   let called = false
   const d = deps({
     improv: { networkReset: async () => ((called = true), {}) },
@@ -44,7 +44,7 @@ test('runNetworkReset requires typed RESET without -y', async () => {
 })
 
 test('runNetworkReset proceeds on RESET and on -y without prompting', async () => {
-  const { runNetworkReset } = loadFactoryReset()
+  const { runNetworkReset } = loadNetworkReset()
   const ports = []
   const d = deps({ improv: { networkReset: async (p) => void ports.push(p) } })
   assert.equal(await runNetworkReset({}, d), true)
@@ -60,7 +60,7 @@ test('runNetworkReset proceeds on RESET and on -y without prompting', async () =
 })
 
 test('runNetworkReset returns false when the device refuses', async () => {
-  const { runNetworkReset } = loadFactoryReset()
+  const { runNetworkReset } = loadNetworkReset()
   const d = deps({
     improv: {
       networkReset: async () => {

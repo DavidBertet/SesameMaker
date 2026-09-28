@@ -26,6 +26,7 @@ const RPC = {
   SET_OTA_PASSWORD: 0x10, // SesameMaker extension (see improv.h)
   GET_OTA_PASSWORD: 0x11, // SesameMaker extension (read-back for install.sh)
   NETWORK_RESET: 0x12, // SesameMaker extension (forget WiFi, clear OTA pw, reboot)
+  FACTORY_RESET: 0x13, // SesameMaker extension (erase all NVS, reboot)
 }
 
 const ERROR_NAMES = {
@@ -313,6 +314,14 @@ async function networkReset(portPath, opts = {}, serialLib = null) {
   expectResult(frame, 'network reset')
 }
 
+// Factory reset: erase everything (WiFi, all settings, Zigbee, HomeKit),
+// reboot to first-boot defaults. The device acks before erasing.
+// Throws on refusal/timeout.
+async function factoryReset(portPath, opts = {}, serialLib = null) {
+  const frame = await exchangeRpc(portPath, RPC.FACTORY_RESET, [], opts, serialLib)
+  expectResult(frame, 'factory reset')
+}
+
 // First string of a RESULT payload ([cmd][len][slen str]...), or ''.
 function firstResultString(frame) {
   if (frame.data.length < 3) return ''
@@ -434,6 +443,7 @@ module.exports = {
   firstResultString,
   getOtaPassword,
   setOtaPassword,
+  factoryReset,
   networkReset,
   getNetworkState,
   scanNetworks,

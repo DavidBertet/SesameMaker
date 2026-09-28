@@ -153,6 +153,38 @@ test('networkReset throws the device error text', async () => {
   await assert.rejects(impl.networkReset('/dev/x', {}, lib), /network reset refused/)
 })
 
+test('factoryReset sends 0x13 and acks the empty result', async () => {
+  const impl = loadImprov()
+  const { buildFrame, parseFrames, TYPE, RPC } = impl
+  const seen = []
+  const lib = fakeSerialLib((chunk, reply) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type !== TYPE.RPC) continue
+      seen.push(f.data[0])
+      if (f.data[0] === RPC.FACTORY_RESET) {
+        reply(buildFrame(TYPE.RESULT, [RPC.FACTORY_RESET, 0]))
+      }
+    }
+  })
+  await impl.factoryReset('/dev/x', {}, lib)
+  assert.deepEqual(seen, [RPC.FACTORY_RESET])
+  assert.equal(RPC.FACTORY_RESET, 0x13)
+})
+
+test('factoryReset throws the device error text', async () => {
+  const impl = loadImprov()
+  const { buildFrame, parseFrames, TYPE } = impl
+  const lib = fakeSerialLib((chunk, reply) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type !== TYPE.RPC) continue
+      reply(buildFrame(TYPE.ERROR, [0xff]))
+    }
+  })
+  await assert.rejects(impl.factoryReset('/dev/x', {}, lib), /factory reset refused/)
+})
+
 test('resolvePortPath prefers the known path when present', async () => {
   const { resolvePortPath } = loadImprov()
   const lib = {

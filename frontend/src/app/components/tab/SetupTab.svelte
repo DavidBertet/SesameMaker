@@ -37,8 +37,9 @@
   let wifiEditing = $state(false)
   // Override field hidden until "Change password".
   let otaEditing = $state(false)
-  // Two-click confirm for the destructive reset below.
+  // Two-click confirms for the destructive resets below.
   let resetArmed = $state(false)
+  let eraseArmed = $state(false)
 
   const online = $derived(net !== null && (net.flags & 1) === 1 && net.urls.length > 0)
   const showWifiForm = $derived(!online || wifiEditing)
@@ -94,6 +95,7 @@
     otaEditing = false
     otaNew = ''
     resetArmed = false
+    eraseArmed = false
     if (s) {
       try {
         await s.close()
@@ -218,6 +220,20 @@
       // Device reboots into the setup AP; the cable session is gone.
       await disconnect()
       toast.success('Device reset — rebooting into the "SesameMaker" setup AP.')
+    })
+  }
+
+  async function factoryReset() {
+    if (!eraseArmed) {
+      eraseArmed = true
+      return
+    }
+    eraseArmed = false
+    await run(async () => {
+      await session.factoryReset()
+      // Everything erased; the reboot lands on first-boot defaults.
+      await disconnect()
+      toast.success('Device erased — rebooting to first-boot defaults.')
     })
   }
 </script>
@@ -485,6 +501,29 @@
           </Button>
           {#if resetArmed}
             <Button size="sm" variant="ghost" onclick={() => (resetArmed = false)} disabled={busy}>
+              Cancel
+            </Button>
+          {/if}
+        </Card.Content>
+      </Card.Root>
+
+      <Card.Root class="border-destructive">
+        <Card.Header class="pb-3">
+          <Card.Title class="text-lg flex items-center gap-2">
+            <Trash2 class="size-4" />
+            Factory reset
+          </Card.Title>
+          <Card.Description>
+            Erases everything — Wi-Fi, all settings, Zigbee network, HomeKit pairing — and reboots
+            to first boot. No undo.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="destructive" onclick={factoryReset} disabled={busy}>
+            {eraseArmed ? 'Click again to erase everything' : 'Factory reset…'}
+          </Button>
+          {#if eraseArmed}
+            <Button size="sm" variant="ghost" onclick={() => (eraseArmed = false)} disabled={busy}>
               Cancel
             </Button>
           {/if}
