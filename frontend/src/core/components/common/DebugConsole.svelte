@@ -4,7 +4,7 @@
   import { onDestroy } from 'svelte'
   import { slide } from 'svelte/transition'
   import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
-  import { usbConsoleState, clearUsbConsole } from 'src/app/lib/usbConsole.svelte.js'
+  import { usbConsoleState, clearUsbConsole } from 'src/core/lib/usbConsole.svelte.js'
   import { Terminal, X, Trash2 } from 'lucide-svelte'
 
   // On the USB Setup tab the console is meaningless until a USB session is
