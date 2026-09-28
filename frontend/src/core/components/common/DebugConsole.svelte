@@ -4,11 +4,21 @@
   import { onDestroy } from 'svelte'
   import { slide } from 'svelte/transition'
   import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
+  import { usbConsoleState, clearUsbConsole } from 'src/app/lib/usbConsole.svelte.js'
   import { Terminal, X, Trash2 } from 'lucide-svelte'
+
+  // On the USB Setup tab the console is meaningless until a USB session is
+  // live; then it shows real ESP lines off the cable instead of WebSocket.
+  let { activeTab = '' } = $props()
+
+  const usbMode = $derived(activeTab === 'setup')
+  const usbLive = $derived(usbConsoleState.live)
+  const hidden = $derived(usbMode && !usbLive)
 
   let open = $state(false)
   let logs = $state([])
   let logUnsub = $state(null)
+  let wsStreaming = $state(false)
   let logContainer = $state(null)
   let autoScroll = $state(true)
 
@@ -90,6 +100,8 @@
   }
 
   function startLogs() {
+    if (usbMode) return // USB lines flow via usbConsoleState; nothing to subscribe
+    wsStreaming = true
     sendMessage({ type: 'log_start' })
     logUnsub = onMessageType('log', (data) => {
       if (data.message) {
@@ -102,7 +114,10 @@
   }
 
   function stopLogs() {
-    sendMessage({ type: 'log_stop' })
+    if (wsStreaming) {
+      sendMessage({ type: 'log_stop' })
+      wsStreaming = false
+    }
     if (logUnsub) {
       logUnsub()
       logUnsub = null
@@ -110,8 +125,25 @@
   }
 
   function clear() {
-    logs = []
+    if (usbMode) clearUsbConsole()
+    else logs = []
   }
+
+  // USB lines arrive pre-stamped; parse ESP format for display.
+  const viewEntries = $derived(
+    usbMode
+      ? usbConsoleState.lines.map((e) => ({
+          ...parseLogEntry(e.message),
+          received: fmtClock(e.received),
+        }))
+      : logs,
+  )
+
+  // The toggle hides on the USB tab until a session is live: auto-close so
+  // the panel can't get stuck open with no way back.
+  $effect(() => {
+    if (hidden && open) closeConsole()
+  })
 
   function onScroll() {
     if (!logContainer) return
@@ -139,28 +171,31 @@
   })
 </script>
 
-<!-- Stealth debug toggle, docked bottom-right. Rides the console panel edge when open. -->
-<div
-  class="fixed z-50 flex flex-col items-center cursor-pointer select-none transition-[bottom] duration-300"
-  style="right: 6px; bottom: {open ? '40vh' : '0'};"
-  role="button"
-  aria-label="Debug console"
-  aria-pressed={open}
-  tabindex="0"
-  onclick={toggle}
-  onkeydown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      toggle()
-    }
-  }}
->
+<!-- Stealth debug toggle, docked bottom-right. Rides the console panel edge when open.
+     Hidden on the USB tab until a USB session is live (nothing to show). -->
+{#if !hidden}
   <div
-    class="flex size-8 items-center justify-center rounded-t-md bg-white/80 text-zinc-800 shadow-[0_0_12px_2px_color-mix(in_oklab,var(--color-primary)_45%,transparent)] hover:bg-zinc-100 hover:text-zinc-950 transition-colors dark:bg-zinc-800/40 dark:text-zinc-400 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-200"
+    class="fixed z-50 flex flex-col items-center cursor-pointer select-none transition-[bottom] duration-300"
+    style="right: 6px; bottom: {open ? '40vh' : '0'};"
+    role="button"
+    aria-label="Debug console"
+    aria-pressed={open}
+    tabindex="0"
+    onclick={toggle}
+    onkeydown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        toggle()
+      }
+    }}
   >
-    <Terminal class="size-4" />
+    <div
+      class="flex size-8 items-center justify-center rounded-t-md bg-white/80 text-zinc-800 shadow-[0_0_12px_2px_color-mix(in_oklab,var(--color-primary)_45%,transparent)] hover:bg-zinc-100 hover:text-zinc-950 transition-colors dark:bg-zinc-800/40 dark:text-zinc-400 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-200"
+    >
+      <Terminal class="size-4" />
+    </div>
   </div>
-</div>
+{/if}
 
 {#if open}
   <div
@@ -171,8 +206,8 @@
     <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-700 shrink-0">
       <div class="flex items-center gap-2 text-sm font-medium">
         <Terminal class="size-4" />
-        <span>Device Logs</span>
-        <span class="text-xs text-zinc-500">({logs.length})</span>
+        <span>{usbMode ? 'USB Logs' : 'Device Logs'}</span>
+        <span class="text-xs text-zinc-500">({viewEntries.length})</span>
       </div>
       <div class="flex items-center gap-1">
         <button
@@ -197,10 +232,10 @@
       onscroll={onScroll}
       class="flex-1 overflow-y-auto font-mono text-xs leading-relaxed p-3"
     >
-      {#if logs.length === 0}
+      {#if viewEntries.length === 0}
         <div class="text-zinc-600 italic">Waiting for logs...</div>
       {/if}
-      {#each logs as entry}
+      {#each viewEntries as entry}
         <div class="flex gap-2 py-px">
           <span class="text-zinc-600 shrink-0 tabular-nums">{entry.received}</span>
           <span class="text-zinc-600/70 shrink-0 tabular-nums">{fmtUptime(entry.time)}</span>

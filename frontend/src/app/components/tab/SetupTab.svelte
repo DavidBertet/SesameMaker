@@ -11,6 +11,7 @@
   import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import { getSignalStrength } from 'src/core/lib/wifi.js'
   import { ImprovSession, requestDevicePort, STATE } from 'src/app/lib/serialImprov.js'
+  import { attachUsbConsole, detachUsbConsole } from 'src/app/lib/usbConsole.svelte.js'
   import { toast } from 'svelte-sonner'
   import * as Card from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'
@@ -59,12 +60,14 @@
       const port = await requestDevicePort()
       portLabel = `USB${port.getInfo ? ` (${port.getInfo().usbVendorId || '?'}:${port.getInfo().usbProductId || '?'})` : ''}`
       session = new ImprovSession(port)
+      attachUsbConsole(session)
       wifiEditing = false
       otaEditing = false
       await fetchInfos()
       autoScan = !(net !== null && (net.flags & 1) === 1 && net.urls.length > 0)
     } catch (e) {
       toast.error(e.message || String(e))
+      detachUsbConsole()
       session = null
     } finally {
       busy = false
@@ -76,6 +79,7 @@
   async function disconnect() {
     const s = session
     session = null
+    detachUsbConsole()
     info = null
     ota = { value: null, revealed: false }
     net = null
@@ -97,6 +101,7 @@
   }
 
   onDestroy(() => {
+    detachUsbConsole()
     if (session) {
       const s = session
       session = null

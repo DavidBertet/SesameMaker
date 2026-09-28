@@ -275,4 +275,4 @@
   <DemoPill live={activeTab === 'setup'} />
 {/if}
 
-<DebugConsole />
+<DebugConsole {activeTab} />

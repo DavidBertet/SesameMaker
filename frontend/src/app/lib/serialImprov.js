@@ -51,20 +51,26 @@ function concat(...parts) {
 export function buildFrame(type, data) {
   const body = data || new Uint8Array(0)
   if (body.length > 255) throw new Error('improv frame data too long')
-  const head = concat(
-    Uint8Array.from(MAGIC),
-    Uint8Array.of(VERSION, type, body.length),
-    body,
-  )
+  const head = concat(Uint8Array.from(MAGIC), Uint8Array.of(VERSION, type, body.length), body)
   return concat(head, Uint8Array.of(checksum(head), 0x0a))
 }
 
 // Pull complete, checksum-valid frames out of a byte buffer (log noise and
-// partial frames stay in `rest`). Returns {frames, rest}.
+// partial frames stay in `rest`). Returns {frames, rest, noise}: `noise`
+// holds the bytes definitively skipped as non-frame data (console output on
+// the shared USB line) so callers can surface them as log lines. Bytes kept
+// in `rest` (partial magic/frame tails) are never reported as noise.
 export function parseFrames(buf) {
   const bytes = buf instanceof Uint8Array ? buf : Uint8Array.from(buf)
   const frames = []
+  const dropped = []
   let rest = bytes
+  const drop = (n) => {
+    if (n > 0) {
+      dropped.push(rest.slice(0, n))
+      rest = rest.slice(n)
+    }
+  }
   const indexOfMagic = () => {
     outer: for (let i = 0; i + MAGIC.length <= rest.length; i++) {
       for (let j = 0; j < MAGIC.length; j++) {
@@ -77,27 +83,27 @@ export function parseFrames(buf) {
   for (;;) {
     const at = indexOfMagic()
     if (at === -1) {
-      rest = rest.length > MAGIC.length ? rest.slice(-MAGIC.length) : rest
+      if (rest.length > MAGIC.length) drop(rest.length - MAGIC.length)
       break
     }
-    rest = rest.slice(at)
+    drop(at)
     if (rest.length < 9) break
     if (rest[6] !== VERSION) {
-      rest = rest.slice(1)
+      drop(1)
       continue
     }
     const len = rest[8]
     if (rest.length < 9 + len + 1) break
     const body = rest.slice(0, 9 + len)
     if (checksum(body) !== rest[9 + len]) {
-      rest = rest.slice(1)
+      drop(1)
       continue
     }
     frames.push({ type: rest[7], data: rest.slice(9, 9 + len) })
     rest = rest.slice(9 + len + 1)
     if (rest.length > 0 && rest[0] === 0x0a) rest = rest.slice(1)
   }
-  return { frames, rest }
+  return { frames, rest, noise: concat(...dropped) }
 }
 
 export function rpcCommand(cmd, payload) {
@@ -161,6 +167,36 @@ export class ImprovSession {
     this.seen = []
     this.reader = null
     this.pump = null
+    this.logListeners = new Set()
+    this._logText = ''
+    this._logDec = new TextDecoder()
+  }
+
+  // Console lines from the shared USB line (ESP logs interleaved with
+  // frames). Returns an unsubscribe function.
+  onLog(cb) {
+    this.logListeners.add(cb)
+    return () => this.logListeners.delete(cb)
+  }
+
+  _emitNoise(chunk) {
+    if (!chunk.length || this.logListeners.size === 0) return
+    this._logText += this._logDec.decode(chunk, { stream: true })
+    const parts = this._logText.split('\n')
+    this._logText = parts.pop()
+    for (const line of parts) {
+      const msg = line.replace(/\r$/, '')
+      if (!msg) continue
+      for (const cb of this.logListeners) cb(msg)
+    }
+  }
+
+  _flushLogs() {
+    if (!this._logText || this.logListeners.size === 0) return
+    const msg = this._logDec.decode() + this._logText
+    this._logText = ''
+    if (!msg) return
+    for (const cb of this.logListeners) cb(msg)
   }
 
   async _ensureReader() {
@@ -173,9 +209,10 @@ export class ImprovSession {
             if (done) break
             if (value && value.length) {
               this.buf = concat(this.buf, value)
-              const { frames, rest } = parseFrames(this.buf)
+              const { frames, rest, noise } = parseFrames(this.buf)
               this.buf = rest
               this.seen.push(...frames)
+              this._emitNoise(noise)
             }
           }
         } catch {
@@ -209,6 +246,7 @@ export class ImprovSession {
     } catch {
       // pump already gone
     }
+    this._flushLogs()
     await this.port.close()
   }
 
@@ -317,7 +355,11 @@ export class ImprovSession {
         strs.push(dec.decode(frame.data.slice(pos, pos + slen)))
         pos += slen
       }
-      networks.push({ ssid: strs[0] || '', rssi: parseInt(strs[1] || '-100', 10) || -100, auth: strs[2] === 'YES' })
+      networks.push({
+        ssid: strs[0] || '',
+        rssi: parseInt(strs[1] || '-100', 10) || -100,
+        auth: strs[2] === 'YES',
+      })
     }
     return networks
   }
@@ -328,8 +370,8 @@ export class ImprovSession {
     await this._ensureReader()
     this._discard([TYPE.STATE, TYPE.RESULT, TYPE.ERROR])
     await this._write(rpcCommand(RPC.WIFI_SETTINGS, wifiSettingsPayload(ssid, password)))
-      const done = await this._waitFor(
-        (f) => f.type === TYPE.ERROR || (f.type === TYPE.STATE && f.data[0] === STATE.PROVISIONED),
+    const done = await this._waitFor(
+      (f) => f.type === TYPE.ERROR || (f.type === TYPE.STATE && f.data[0] === STATE.PROVISIONED),
       connectTimeoutMs,
       'provisioning result',
     )

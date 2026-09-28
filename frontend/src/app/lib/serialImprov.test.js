@@ -89,7 +89,9 @@ test('exchange round-trips device info through a fake port', async () => {
         setImmediate(() =>
           emit(
             (() => {
-              const strs = ['SesameMaker', 'dev', 'esp32-c6', 'SesameMaker'].map((s) => new TextEncoder().encode(s))
+              const strs = ['SesameMaker', 'dev', 'esp32-c6', 'SesameMaker'].map((s) =>
+                new TextEncoder().encode(s),
+              )
               const body = strs.flatMap((b) => [b.length, ...b])
               return frameData(TYPE.RESULT, [RPC.GET_INFO, body.length, ...body])
             })(),
@@ -193,6 +195,39 @@ test('getInfo skips stale scan rows replayed before the answer', async () => {
   try {
     assert.deepEqual(await session.getInfo(), ['SesameMaker', 'dev', 'esp32c6', 'SesameMaker'])
   } finally {
+    await session.close()
+  }
+})
+
+test('parseFrames surfaces leading log noise separately', () => {
+  const log = new TextEncoder().encode('I (12) WIFI: sta connected\n')
+  const frame = buildFrame(TYPE.STATE, Uint8Array.of(STATE.PROVISIONED))
+  const { frames, rest, noise } = parseFrames(Uint8Array.from([...log, ...frame]))
+  assert.equal(frames.length, 1)
+  assert.deepEqual([...noise], [...log])
+  assert.equal(rest.length, 0)
+})
+
+test('session emits USB log lines interleaved with frames', async () => {
+  const lines = []
+  const port = fakePort((chunk, emit) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type === TYPE.RPC && f.data[0] === RPC.GET_INFO) {
+        const log = new TextEncoder().encode('I (12) WIFI: sta connected\n')
+        setImmediate(() =>
+          emit(Uint8Array.from([...log, ...resultFrame(RPC.GET_INFO, ['SesameMaker'])])),
+        )
+      }
+    }
+  })
+  const session = new ImprovSession(port)
+  const unsub = session.onLog((msg) => lines.push(msg))
+  try {
+    assert.deepEqual(await session.getInfo(), ['SesameMaker'])
+    assert.deepEqual(lines, ['I (12) WIFI: sta connected'])
+  } finally {
+    unsub()
     await session.close()
   }
 })
