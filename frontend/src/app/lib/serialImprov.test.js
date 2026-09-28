@@ -174,3 +174,44 @@ test('getOtaPassword resolves null on silence (old firmware)', async () => {
     await session.close()
   }
 })
+
+test('getInfo skips stale scan rows replayed before the answer', async () => {
+  const port = fakePort((chunk, emit) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type === TYPE.RPC && f.data[0] === RPC.GET_INFO) {
+        // Stale GET_NETWORKS row from an aborted scan (OS buffer replay),
+        // then the real GET_INFO answer.
+        setImmediate(() => emit(resultFrame(RPC.GET_NETWORKS, ['TELUS0761', '-49', 'YES'])))
+        setImmediate(() =>
+          emit(resultFrame(RPC.GET_INFO, ['SesameMaker', 'dev', 'esp32c6', 'SesameMaker'])),
+        )
+      }
+    }
+  })
+  const session = new ImprovSession(port)
+  try {
+    assert.deepEqual(await session.getInfo(), ['SesameMaker', 'dev', 'esp32c6', 'SesameMaker'])
+  } finally {
+    await session.close()
+  }
+})
+
+test('scanNetworks skips stale foreign results', async () => {
+  const port = fakePort((chunk, emit) => {
+    const { frames } = parseFrames(chunk)
+    for (const f of frames) {
+      if (f.type === TYPE.RPC && f.data[0] === RPC.GET_NETWORKS) {
+        setImmediate(() => emit(resultFrame(RPC.GET_INFO, ['SesameMaker', 'dev', 'x', 'y'])))
+        setImmediate(() => emit(resultFrame(RPC.GET_NETWORKS, ['home', '-60', 'YES'])))
+        setImmediate(() => emit(resultFrame(RPC.GET_NETWORKS, [])))
+      }
+    }
+  })
+  const session = new ImprovSession(port)
+  try {
+    assert.deepEqual(await session.scanNetworks(2000), [{ ssid: 'home', rssi: -60, auth: true }])
+  } finally {
+    await session.close()
+  }
+})

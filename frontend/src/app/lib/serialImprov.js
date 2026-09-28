@@ -227,6 +227,18 @@ export class ImprovSession {
     return this.seen.splice(i, 1)[0]
   }
 
+  // Drop queued frames of the given types. Calls are sequential, so
+  // anything queued before a new request is stale (e.g. scan rows from
+  // an aborted scan replayed from OS buffers on reconnect) and must not
+  // satisfy the next wait. Partial bytes in `buf` are left alone.
+  _discard(types) {
+    this.seen = this.seen.filter((f) => !types.includes(f.type))
+  }
+
+  static _isResultFor(frame, ...cmds) {
+    return frame.type === TYPE.RESULT && frame.data.length >= 2 && cmds.includes(frame.data[0])
+  }
+
   async _waitFor(pred, timeoutMs, what) {
     const deadline = Date.now() + timeoutMs
     for (;;) {
@@ -237,12 +249,14 @@ export class ImprovSession {
     }
   }
 
-  // One request/response exchange: RESULT or ERROR (throws on error).
+  // One request/response exchange: RESULT (matching cmd) or ERROR
+  // (throws on error). Stale frames queued before the request are dropped.
   async exchange(cmd, payload, timeoutMs = 5000) {
     await this._ensureReader()
+    this._discard([TYPE.RESULT, TYPE.ERROR])
     await this._write(rpcCommand(cmd, payload))
     const frame = await this._waitFor(
-      (f) => f.type === TYPE.RESULT || f.type === TYPE.ERROR,
+      (f) => f.type === TYPE.ERROR || ImprovSession._isResultFor(f, cmd),
       timeoutMs,
       'RPC result',
     )
@@ -251,6 +265,7 @@ export class ImprovSession {
 
   async getState(timeoutMs = 5000) {
     await this._ensureReader()
+    this._discard([TYPE.STATE, TYPE.RESULT, TYPE.ERROR])
     await this._write(rpcCommand(RPC.GET_STATE, new Uint8Array(0)))
     return this._waitFor((f) => f.type === TYPE.STATE, timeoutMs, 'device state')
   }
@@ -281,6 +296,7 @@ export class ImprovSession {
 
   async scanNetworks(timeoutMs = 30000) {
     await this._ensureReader()
+    this._discard([TYPE.RESULT, TYPE.ERROR])
     await this._write(rpcCommand(RPC.GET_NETWORKS, new Uint8Array(0)))
     const networks = []
     const deadline = Date.now() + timeoutMs
@@ -288,10 +304,7 @@ export class ImprovSession {
       const remaining = deadline - Date.now()
       if (remaining <= 0) throw new Error('timed out waiting for network scan')
       const frame = await this._waitFor(
-        () => {
-          const i = this.seen.findIndex((f) => f.type === TYPE.RESULT || f.type === TYPE.ERROR)
-          return i === -1 ? null : this.seen.splice(i, 1)[0]
-        },
+        (f) => f.type === TYPE.ERROR || ImprovSession._isResultFor(f, RPC.GET_NETWORKS),
         remaining,
         'network scan',
       )
@@ -313,6 +326,7 @@ export class ImprovSession {
   // (intermediate PROVISIONING states are ignored), then the URL result.
   async provisionWifi(ssid, password, connectTimeoutMs = 45000) {
     await this._ensureReader()
+    this._discard([TYPE.STATE, TYPE.RESULT, TYPE.ERROR])
     await this._write(rpcCommand(RPC.WIFI_SETTINGS, wifiSettingsPayload(ssid, password)))
       const done = await this._waitFor(
         (f) => f.type === TYPE.ERROR || (f.type === TYPE.STATE && f.data[0] === STATE.PROVISIONED),
@@ -325,9 +339,13 @@ export class ImprovSession {
       if (attempt > 0) {
         await this._write(rpcCommand(RPC.GET_STATE, new Uint8Array(0)))
       }
-      const result = await this._waitFor((f) => f.type === TYPE.RESULT, 4000, 'device URL').catch(
-        () => null,
-      )
+      // URL result trails PROVISIONED with cmd WIFI_SETTINGS (or GET_STATE
+      // on re-request). Other RESULTs (e.g. stale scan rows) are ignored.
+      const result = await this._waitFor(
+        (f) => ImprovSession._isResultFor(f, RPC.WIFI_SETTINGS, RPC.GET_STATE),
+        4000,
+        'device URL',
+      ).catch(() => null)
       if (result && result.data.length > 2) {
         const slen = result.data[2]
         url = dec.decode(result.data.slice(3, 3 + slen)) || null
