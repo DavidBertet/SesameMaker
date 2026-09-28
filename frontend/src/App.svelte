@@ -138,11 +138,13 @@
     },
   ]
 
-  const tabs = $derived(
-    SetupTab
-      ? [...baseTabs, { id: 'setup', label: 'USB Setup', icon: Usb, component: SetupTab }]
-      : baseTabs,
+  const deviceTabs = baseTabs
+
+  const localTabs = $derived(
+    SetupTab ? [{ id: 'setup', label: 'USB Setup', icon: Usb, component: SetupTab }] : [],
   )
+
+  const tabs = $derived([...deviceTabs, ...localTabs])
 
   function setActiveTab(tab) {
     activeTab = tab
@@ -185,12 +187,12 @@
           </div>
         </div>
 
-        <SidebarNav {tabs} {activeTab} onTabSelect={setActiveTab} />
+        <SidebarNav tabs={deviceTabs} {localTabs} {activeTab} onTabSelect={setActiveTab} />
       </Sidebar.Content>
     </Sidebar.Root>
 
     <main class="flex-1 flex flex-col min-h-screen">
-      <SystemStatus />
+      <SystemStatus {activeTab} />
 
       <div class="bg-background">
         <!-- Header -->
@@ -270,7 +272,7 @@
 
 {#if import.meta.env.MODE === 'github'}
   <div class="h-20"></div>
-  <DemoPill />
+  <DemoPill live={activeTab === 'setup'} />
 {/if}
 
 <DebugConsole />

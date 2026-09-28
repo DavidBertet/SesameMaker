@@ -4,11 +4,24 @@
   import { cn } from '$lib/utils'
   import { slide } from 'svelte/transition'
 
-  import { AlertTriangle, Clock } from 'lucide-svelte'
+  import { AlertTriangle, Clock, Usb } from 'lucide-svelte'
 
   import { settingsState } from 'src/core/lib/settings.svelte.js'
 
+  let { activeTab } = $props()
+
   const systemState = $derived.by(() => {
+    // USB Setup tab is a local browser → USB-cable session, independent of
+    // the device's Wi-Fi: own the top slot instead of the Wi-Fi banner.
+    if (activeTab === 'setup') {
+      return {
+        message: 'Local session: this browser → USB cable. Independent of the demo.',
+        style: 'bg-blue-600 text-white border-blue-700',
+        icon: Usb,
+        title: 'USB Setup',
+      }
+    }
+
     if (!settingsState.wifi) return null
 
     const { connected, setup } = settingsState.wifi

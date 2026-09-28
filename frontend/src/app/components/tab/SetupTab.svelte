@@ -200,7 +200,10 @@
   }
 </script>
 
-<SectionHeader title="USB Setup" subtitle="Provision a device over USB serial." />
+<SectionHeader
+  title="USB Setup"
+  subtitle="Set up a device plugged into this computer over USB — Wi-Fi, OTA password and device info, straight from your browser."
+/>
 
 {#if !supported}
   <Card.Root>
