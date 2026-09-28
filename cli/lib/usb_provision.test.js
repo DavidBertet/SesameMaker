@@ -54,8 +54,32 @@ test('provisionOverUsb returns null without a serial target', async () => {
     await provisionOverUsb({ serialPort: '/dev/x' }, { backendUploaded: false }, d),
     null,
   )
+  assert.equal(
+    await provisionOverUsb(
+      { serialPort: '/dev/x' },
+      { backendUploaded: false, frontendUploaded: false },
+      d,
+    ),
+    null,
+  )
   assert.equal(await provisionOverUsb({}, { backendUploaded: true }, d), null)
   assert.equal(called, false)
+})
+
+test('provisionOverUsb reads the device password on frontend-only uploads', async () => {
+  tty()
+  const { provisionOverUsb } = loadUsbProvision()
+  const d = deps({
+    improv: {
+      getNetworkState: async () => ({ flags: 3, urls: ['http://192.168.1.10/'] }),
+    },
+  })
+  const res = await provisionOverUsb(
+    { serialPort: '/dev/x' },
+    { backendUploaded: false, frontendUploaded: true },
+    d,
+  )
+  assert.deepEqual(res, { ssid: null, url: 'http://192.168.1.10/', otaPassword: 'dev-pw' })
 })
 
 test('provisionOverUsb keeps the device password when no flag given', async () => {

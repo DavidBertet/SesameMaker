@@ -41,10 +41,11 @@ async function main() {
     // firmware (no build-time secrets). On success the device reports its
     // own URL — no network sweep needed.
     let provisioned = null
-    if (!args.otaIP && finalResults.backendUploaded) {
+    if (!args.otaIP && (finalResults.backendUploaded || finalResults.frontendUploaded)) {
       provisioned = await provisionOverUsb(args, {
         uploadPassword: args.uploadPassword,
         backendUploaded: finalResults.backendUploaded,
+        frontendUploaded: finalResults.frontendUploaded,
       })
       if (provisioned && provisioned.otaPassword) {
         otaPassword = provisioned.otaPassword

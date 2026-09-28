@@ -52,7 +52,6 @@ async function uploadToDevice(args) {
     }
   }
 
-  console.log()
   return { backendUploaded, frontendUploaded }
 }
 

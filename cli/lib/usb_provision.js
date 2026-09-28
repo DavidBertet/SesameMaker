@@ -114,12 +114,16 @@ async function pickWifiSsid(port, improv, prompt) {
   return (await prompt.askQuestion('WiFi SSID:')).trim()
 }
 
-async function provisionOverUsb(args, { uploadPassword, backendUploaded, retry } = {}, deps = {}) {
+async function provisionOverUsb(
+  args,
+  { uploadPassword, backendUploaded, frontendUploaded, retry } = {},
+  deps = {},
+) {
   const improv = deps.improv || require('./improv')
   const prompt = deps.prompt || require('./prompt')
   const password = deps.password || require('./password')
 
-  if (!backendUploaded || args.otaIP) {
+  if ((!backendUploaded && !frontendUploaded) || args.otaIP) {
     return null
   }
 
