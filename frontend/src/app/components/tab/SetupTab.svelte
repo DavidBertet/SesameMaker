@@ -20,9 +20,27 @@
   import { PlugZap, Usb } from 'lucide-svelte'
 
   // Release binaries come from GitHub releases (see .github/workflows/release.yml).
-  const RELEASE_REPO = { owner: 'DavidBertet', repo: 'SesameMaker' }
-  const EXPECTED_CHIP = 'ESP32-C6'
-  const manifestNameFor = (tag) => `sesamemaker-esp32c6-${tag}-manifest.json`
+  // One firmware per chip — the picker offers every variant the release builds.
+  const FIRMWARE_VARIANTS = [
+    {
+      id: 'esp32c6',
+      label: 'ESP32-C6 (Zigbee)',
+      expectedChip: 'ESP32-C6',
+      manifestNameFor: (tag) => `sesamemaker-esp32c6-${tag}-manifest.json`,
+    },
+    {
+      id: 'esp32c3',
+      label: 'ESP32-C3',
+      expectedChip: 'ESP32-C3',
+      manifestNameFor: (tag) => `sesamemaker-esp32c3-${tag}-manifest.json`,
+    },
+    {
+      id: 'esp32s3',
+      label: 'ESP32-S3',
+      expectedChip: 'ESP32-S3',
+      manifestNameFor: (tag) => `sesamemaker-esp32s3-${tag}-manifest.json`,
+    },
+  ]
 
   const supported = typeof navigator !== 'undefined' && 'serial' in navigator
 
@@ -125,13 +143,14 @@
             What you need
           </Card.Title>
           <Card.Description>
-            An ESP32-C6 board with a USB port, a USB cable, and this page.
+            An ESP32 board with a USB port (C6, C3 or S3 — pick yours below), a USB cable, and this
+            page.
           </Card.Description>
         </Card.Header>
         <Card.Content>
           <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             <li>🚪 Door control + live state from the wall bus</li>
-            <li>📻 Zigbee, 🏠 HomeKit and MQTT bridge</li>
+            <li>📻 Zigbee (C6 boards), 🏠 HomeKit and MQTT bridge</li>
             <li>🔌 100% local — no cloud account</li>
             <li>💡 Opener light & remote lockout</li>
             <li>📶 Wi-Fi web UI + password-protected OTA</li>
@@ -142,10 +161,9 @@
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <InstallCard
-          owner={RELEASE_REPO.owner}
-          repo={RELEASE_REPO.repo}
-          {manifestNameFor}
-          expectedChip={EXPECTED_CHIP}
+          owner="DavidBertet"
+          repo="SesameMaker"
+          variants={FIRMWARE_VARIANTS}
           onInstalled={connectWithPort}
         />
 

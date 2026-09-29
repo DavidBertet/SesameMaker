@@ -23,8 +23,9 @@
   let {
     owner,
     repo,
-    manifestNameFor = (tag) => `firmware-${tag}-manifest.json`,
-    expectedChip = null,
+    // One firmware per chip: [{id, label, expectedChip, manifestNameFor}].
+    // The board picker offers every variant the release builds.
+    variants = [],
     onInstalled = () => {},
   } = $props()
 
@@ -32,12 +33,14 @@
   let releasesLoading = $state(true)
   let releasesError = $state('')
   let pickedTag = $state('')
+  let pickedVariantId = $state(variants[0]?.id || '')
   let eraseAll = $state(false)
   let flashBusy = $state(false)
   let flashProgress = $state(null) // {phase, file, written, total}
   let flashDone = $state(false)
 
   const pickedRelease = $derived(releases.find((r) => r.tag === pickedTag) || null)
+  const pickedVariant = $derived(variants.find((v) => v.id === pickedVariantId) || null)
   const flashPct = $derived(
     flashProgress && flashProgress.phase === 'flash' && flashProgress.total
       ? Math.round((flashProgress.written / flashProgress.total) * 100)
@@ -67,7 +70,7 @@
   // re-enumeration kills the port object; the host then falls back to a
   // manual connect.
   async function install() {
-    if (!pickedTag || flashBusy) return
+    if (!pickedTag || !pickedVariant || flashBusy) return
     flashBusy = true
     flashDone = false
     flashProgress = null
@@ -76,8 +79,8 @@
         owner,
         repo,
         tag: pickedTag,
-        manifestName: manifestNameFor(pickedTag),
-        expectedChip,
+        manifestName: pickedVariant.manifestNameFor(pickedTag),
+        expectedChip: pickedVariant.expectedChip || null,
         eraseAll,
         onProgress: (p) => (flashProgress = p),
       })
@@ -122,6 +125,26 @@
         <Button size="sm" variant="ghost" onclick={loadReleases}>Retry</Button>
       </p>
     {:else}
+      {#if variants.length > 1}
+        <div class="space-y-2">
+          <Label class="font-medium">Board</Label>
+          <Select
+            type="single"
+            value={pickedVariantId}
+            onValueChange={(v) => (pickedVariantId = v)}
+            disabled={flashBusy}
+          >
+            <SelectTrigger aria-label="Board variant">
+              {pickedVariant ? pickedVariant.label : 'Select your board…'}
+            </SelectTrigger>
+            <SelectContent>
+              {#each variants as v}
+                <SelectItem value={v.id}>{v.label}</SelectItem>
+              {/each}
+            </SelectContent>
+          </Select>
+        </div>
+      {/if}
       <div class="space-y-2">
         <Label class="font-medium">Release</Label>
         <Select
