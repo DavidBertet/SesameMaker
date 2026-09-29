@@ -10,15 +10,19 @@
 #include "sdkconfig.h"
 
 #include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include "esp_netif.h"
+#include "esp_wifi.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
-#include "esp_wifi.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
+#include <errno.h>
 
 static const char *TAG = "IMPROV";
 
@@ -41,15 +45,11 @@ static uint32_t now_ms(void)
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
-// Console transport: USB-Serial-JTAG is the primary console (see
-// sdkconfig.defaults), but the console writes straight to the FIFO without
-// installing the driver — so reads would hard-fault on the NULL driver
-// object. Install it ourselves with RX+TX buffers; console output keeps
-// working alongside (a log line landing mid-frame just fails the host
-// checksum and it retries).
-#define IMPROV_JTAG_RX_BUF 512
-#define IMPROV_JTAG_TX_BUF 512
-
+// Console transport, transport-agnostic: everything goes through stdio,
+// which IDF routes to the configured console (USB-Serial-JTAG on current
+// targets, plain UART on classic ones). Replies share the line with log
+// output — a log line landing mid-frame just fails the host checksum and
+// it retries.
 static void improv_tx(uint8_t type, const uint8_t *data, size_t len)
 {
     uint8_t out[IMPROV_FRAME_MAX];
@@ -58,7 +58,20 @@ static void improv_tx(uint8_t type, const uint8_t *data, size_t len)
     {
         return;
     }
-    usb_serial_jtag_write_bytes(out, n, pdMS_TO_TICKS(100));
+    size_t written = 0;
+    while (written < n)
+    {
+        ssize_t w = write(STDOUT_FILENO, out + written, n - written);
+        if (w < 0)
+        {
+            if (errno == EAGAIN || errno == EINTR)
+            {
+                continue;
+            }
+            return;
+        }
+        written += (size_t)w;
+    }
 }
 
 static void send_state(uint8_t state)
@@ -359,9 +372,12 @@ static void improv_serial_task(void *arg)
     uint8_t chunk[64];
     while (1)
     {
-        int n = usb_serial_jtag_read_bytes(chunk, sizeof(chunk), pdMS_TO_TICKS(IMPROV_READ_TIMEOUT_MS));
+        ssize_t n = read(STDIN_FILENO, chunk, sizeof(chunk));
         if (n <= 0)
         {
+            // EAGAIN on empty non-blocking stdin; anything else is odd but
+            // equally transient — poll on.
+            vTaskDelay(pdMS_TO_TICKS(IMPROV_READ_TIMEOUT_MS));
             continue;
         }
         uint32_t now = now_ms();
@@ -370,7 +386,7 @@ static void improv_serial_task(void *arg)
             improv_parser_init(&parser);
         }
         last_byte_ms = now;
-        for (int i = 0; i < n; i++)
+        for (ssize_t i = 0; i < n; i++)
         {
             if (improv_parser_feed(&parser, chunk[i]) && parser.ready)
             {
@@ -385,19 +401,48 @@ static void improv_serial_task(void *arg)
     }
 }
 
+// Stdio transport setup, once. UART consoles arrive fully working from IDF
+// startup; the JTAG console needs its driver installed and routed to VFS
+// before stdin reads reach us (writes already work driverless). False when
+// the JTAG driver fails — without reads there is no provisioning.
+static bool improv_stdio_init(void)
+{
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    const usb_serial_jtag_driver_config_t cfg = {
+        .tx_buffer_size = 512,
+        .rx_buffer_size = 512,
+    };
+    esp_err_t err = usb_serial_jtag_driver_install((usb_serial_jtag_driver_config_t *)&cfg);
+    ESP_LOGI(TAG, "JTAG driver install: %s", esp_err_to_name(err));
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGE(TAG, "JTAG driver install failed, no USB provisioning");
+        return false;
+    }
+    err = usb_serial_jtag_vfs_register();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "JTAG VFS register failed: %s, no USB provisioning", esp_err_to_name(err));
+        return false;
+    }
+    usb_serial_jtag_vfs_use_driver();
+#else
+    ESP_LOGI(TAG, "Console on UART, stdio ready from startup");
+#endif
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    if (flags >= 0)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+    }
+    return true;
+}
+
 void improv_serial_start(void)
 {
     if (!s_improv_task)
     {
-        const usb_serial_jtag_driver_config_t cfg = {
-            .tx_buffer_size = IMPROV_JTAG_TX_BUF,
-            .rx_buffer_size = IMPROV_JTAG_RX_BUF,
-        };
-        esp_err_t err = usb_serial_jtag_driver_install((usb_serial_jtag_driver_config_t *)&cfg);
-        ESP_LOGI(TAG, "JTAG driver install: %s", esp_err_to_name(err));
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+        if (!improv_stdio_init())
         {
-            ESP_LOGE(TAG, "JTAG driver install failed, no USB provisioning");
             return;
         }
         xTaskCreate(improv_serial_task, "improv_serial", IMPROV_TASK_STACK,
