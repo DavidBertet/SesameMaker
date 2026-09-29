@@ -49,7 +49,7 @@
     {#if localTabs.length}
       <div class="mt-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-1 py-1">
         <Sidebar.GroupLabel class="text-blue-600 dark:text-blue-400"
-          >Browser → USB</Sidebar.GroupLabel
+          >Getting started</Sidebar.GroupLabel
         >
         <Sidebar.Menu class="space-y-1">
           {@render menuItems(localTabs)}

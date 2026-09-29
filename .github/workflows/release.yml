@@ -1,0 +1,109 @@
+# Release firmware binaries for browser flashing (Getting started tab).
+#
+# On every v* tag: build the device frontend into backend/data, build the
+# firmware + SPIFFS image, merge bootloader/partitions/otadata/app into one
+# factory image, and attach everything plus a flash manifest to the GitHub
+# release. The web flasher fetches the manifest for the picked version and
+# burns factory.bin @0x0 + spiffs.bin at its partition offset.
+#
+# Asset layout per release ($TAG = vX.Y.Z):
+#   sesamemaker-esp32c6-$TAG-factory.bin   merged image, flash at 0x0
+#   sesamemaker-esp32c6-$TAG-spiffs.bin    web UI image, flash at 0x37C000
+#   sesamemaker-esp32c6-$TAG-manifest.json {version, chip, files:[{name, offset, size, sha256}]}
+# SPIFFS offset comes from backend/partitions_4mb.csv — keep them in sync.
+
+name: Release firmware
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO and esptool
+        run: pip install platformio esptool
+
+      - name: Firmware version
+        run: |
+          echo "FW_VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "FW_GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Build device frontend into backend/data
+        run: |
+          npm ci
+          npm run build
+        working-directory: ./frontend
+
+      - name: Build firmware
+        run: pio run -e sesame
+        working-directory: ./backend
+
+      - name: Build SPIFFS image
+        run: pio run -t buildfs -e sesame
+        working-directory: ./backend
+
+      - name: Merge factory image and manifest
+        run: |
+          B=backend/.pio/build/sesame
+          TAG=${GITHUB_REF_NAME}
+          esptool.py --chip esp32c6 merge_bin \
+            --flash-mode dio --flash-freq 80m --flash-size 4MB \
+            -o "sesamemaker-esp32c6-${TAG}-factory.bin" \
+            0x0 "$B/bootloader.bin" \
+            0x8000 "$B/partitions.bin" \
+            0xd000 "$B/ota_data_initial.bin" \
+            0x10000 "$B/firmware.bin"
+          cp "$B/spiffs.bin" "sesamemaker-esp32c6-${TAG}-spiffs.bin"
+          python3 - "$TAG" <<'EOF'
+          import hashlib, json, os, sys
+          tag = sys.argv[1]
+          files = [
+              (f"sesamemaker-esp32c6-{tag}-factory.bin", "0x0"),
+              (f"sesamemaker-esp32c6-{tag}-spiffs.bin", "0x37C000"),
+          ]
+          manifest = {"version": tag, "chip": "ESP32-C6", "files": []}
+          for name, offset in files:
+              h = hashlib.sha256()
+              with open(name, "rb") as f:
+                  for chunk in iter(lambda: f.read(65536), b""):
+                      h.update(chunk)
+              manifest["files"].append(
+                  {"name": name, "offset": offset, "size": os.path.getsize(name),
+                   "sha256": h.hexdigest()}
+              )
+          with open(f"sesamemaker-esp32c6-{tag}-manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+          print(json.dumps(manifest, indent=2))
+          EOF
+
+      - name: Create release with binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sesamemaker-esp32c6-*-factory.bin
+            sesamemaker-esp32c6-*-spiffs.bin
+            sesamemaker-esp32c6-*-manifest.json
+          generate_release_notes: true
