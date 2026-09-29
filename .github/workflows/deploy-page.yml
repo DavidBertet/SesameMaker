@@ -102,8 +102,8 @@ jobs:
           echo "FW_VERSION=$(git describe --tags --always --dirty)" >> $GITHUB_ENV
           echo "FW_GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Build firmware
-        run: pio run -e sesame
+      - name: Build firmware (all chip variants)
+        run: pio run -e sesame-c6 && pio run -e sesame-c3 && pio run -e sesame-s3
         working-directory: ./backend
 
   deploy:

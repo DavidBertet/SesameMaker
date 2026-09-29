@@ -5,8 +5,9 @@ const path = require('path')
 const { askQuestion } = require('./prompt')
 const { logger, colors } = require('./logger')
 
-// Parse the single [env:...] section and its board from platformio.ini.
-// Line-anchored: comments may mention [env:...] names.
+// Parse the first [env:...] section and its board from platformio.ini.
+// The shared [env] base (no colon) is skipped. Line-anchored: comments may
+// mention [env:...] names.
 // Returns { env, board } or null. Pure (no fs) so it is unit tested.
 function parsePioEnv(iniContent) {
   const headers = [...iniContent.matchAll(/^\[env:([^\]]+)\]/gm)]
@@ -19,12 +20,51 @@ function parsePioEnv(iniContent) {
   return { env: headers[0][1].trim(), board: boardMatch ? boardMatch[1].trim() : null }
 }
 
-// Rewrite the `board = ...` line inside the [env:...] section.
+// The CLI owns exactly one env (the sandbox); the per-chip release envs are
+// never rewritten by it. Board of a named env, or null when missing.
+function getEnvBoard(iniContent, envName) {
+  const lines = iniContent.split('\n')
+  let inTarget = false
+  for (const line of lines) {
+    const header = line.match(/^\[env:([^\]]+)\]/)
+    if (header) {
+      if (header[1].trim() === envName) inTarget = true
+      else if (inTarget) break
+      continue
+    }
+    if (inTarget) {
+      const boardMatch = line.match(/^\s*board\s*=\s*(.+?)\s*$/)
+      if (boardMatch) return boardMatch[1].trim()
+    }
+  }
+  return null
+}
+
+// Env exclusive to the CLI tool: the board prompt rewrites it, and bare
+// `pio run`/`upload` (default_envs) builds it. Any chip goes here.
+const CLI_ENV = 'sesame-cli'
+
+// Rewrite the `board = ...` line inside the given [env:...] section.
 // Pure (no fs) so it is unit tested.
 function setEnvBoard(iniContent, envName, board) {
-  const parsed = parsePioEnv(iniContent)
-  if (!parsed || parsed.env !== envName) return iniContent
-  return iniContent.replace(/^\s*board\s*=.*$/m, `board = ${board}`)
+  const lines = iniContent.split('\n')
+  let inTarget = false
+  let depthFound = false
+  const out = lines.map((line) => {
+    const header = line.match(/^\[env:([^\]]+)\]/)
+    if (header) {
+      inTarget = header[1].trim() === envName
+      if (inTarget) depthFound = true
+      return line
+    }
+    if (inTarget && /^\s*board\s*=/.test(line)) {
+      inTarget = false // only the first board line in the section
+      return `board = ${board}`
+    }
+    return line
+  })
+  if (!depthFound) return iniContent
+  return out.join('\n')
 }
 
 async function configureBackend(args) {
@@ -33,15 +73,13 @@ async function configureBackend(args) {
 
   const platformioPath = path.resolve('backend/platformio.ini')
   let platformioContent = fs.readFileSync(platformioPath, 'utf8')
-  const parsed = parsePioEnv(platformioContent)
+  const current = getEnvBoard(platformioContent, CLI_ENV)
 
-  if (!parsed || !parsed.board) {
-    logger.error('No [env:...] section with a board found in backend/platformio.ini')
+  if (!current) {
+    logger.error(`No [env:${CLI_ENV}] section with a board found in backend/platformio.ini`)
     process.exit(1)
   }
 
-  const envName = parsed.env
-  const current = parsed.board
   logger.info(`Current board: ${colors.yellow}${current}${colors.reset}`)
   console.log()
   logger.info('Examples: esp32doit-devkit-v1, esp32-c3-devkitm-1, esp32-c6-devkitc-1')
@@ -56,11 +94,11 @@ async function configureBackend(args) {
   }
 
   if (board !== current) {
-    platformioContent = setEnvBoard(platformioContent, envName, board)
+    platformioContent = setEnvBoard(platformioContent, CLI_ENV, board)
     fs.writeFileSync(platformioPath, platformioContent)
     logger.success(`Board updated to: ${board}`)
     // Target changed: stale sdkconfig + build artifacts would mismatch.
-    cleanupBackendConfig(envName)
+    cleanupBackendConfig(CLI_ENV)
   }
 
   logger.success(`Target: ${colors.yellow}${board}${colors.reset}`)
@@ -107,7 +145,8 @@ function findBuildFiles() {
     throw new Error('No build environment found. Run build first.')
   }
 
-  const envDir = pioenvDirs[0] // Use first environment
+  // The CLI builds the sandbox env — never grab another chip's binary.
+  const envDir = pioenvDirs.includes(CLI_ENV) ? CLI_ENV : pioenvDirs[0]
   const firmwarePath = path.join(backendPath, '.pio', 'build', envDir, 'firmware.bin')
 
   if (!fs.existsSync(firmwarePath)) {
@@ -125,5 +164,7 @@ module.exports = {
   cleanupBackendConfig,
   findBuildFiles,
   parsePioEnv,
+  getEnvBoard,
   setEnvBoard,
+  CLI_ENV,
 }

@@ -7,24 +7,24 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const { parsePioEnv, setEnvBoard } = require('./backend.js')
+const { parsePioEnv, getEnvBoard, setEnvBoard, CLI_ENV } = require('./backend.js')
 
 const INI = `
-[env:sesame]
+[env:sesame-c6]
 platform = espressif32 @ 6.13.0
 board = esp32doit-devkit-v1
 framework = espidf
 `
 
 test('parsePioEnv reads the env and board', () => {
-  assert.deepEqual(parsePioEnv(INI), { env: 'sesame', board: 'esp32doit-devkit-v1' })
-  assert.equal(parsePioEnv('[env:sesame]\nboard =\n').board, null)
+  assert.deepEqual(parsePioEnv(INI), { env: 'sesame-c6', board: 'esp32doit-devkit-v1' })
+  assert.equal(parsePioEnv('[env:sesame-c6]\nboard =\n').board, null)
   assert.equal(parsePioEnv('no sections here'), null)
 })
 
 test('setEnvBoard rewrites the board line', () => {
-  const out = setEnvBoard(INI, 'sesame', 'esp32-c6-devkitc-1')
-  assert.ok(out.includes('[env:sesame]'))
+  const out = setEnvBoard(INI, 'sesame-c6', 'esp32-c6-devkitc-1')
+  assert.ok(out.includes('[env:sesame-c6]'))
   assert.ok(out.includes('board = esp32-c6-devkitc-1'))
   assert.ok(!out.includes('board = esp32doit-devkit-v1'))
 })
@@ -35,9 +35,55 @@ test('setEnvBoard with unknown env leaves ini unchanged', () => {
 
 test('setEnvBoard keeps the preamble and ignores [env:] in comments', () => {
   const ini = `; header comment\n; mentions [env:other] in passing\n${INI}`
-  const out = setEnvBoard(ini, 'sesame', 'esp32-c6-devkitc-1')
+  const out = setEnvBoard(ini, 'sesame-c6', 'esp32-c6-devkitc-1')
   assert.ok(out.startsWith('; header comment\n; mentions [env:other] in passing\n'))
   assert.ok(out.includes('board = esp32-c6-devkitc-1'))
+})
+
+test('multi-env ini: CLI owns sesame-cli, chip envs keep their boards', () => {
+  const ini = `[platformio]
+default_envs = sesame-cli
+
+[env]
+platform = espressif32 @ 6.13.0
+
+[env:sesame-cli]
+board = esp32-c6-devkitm-1
+
+[env:sesame-c6]
+board = esp32-c6-devkitm-1
+
+[env:sesame-c3]
+board = esp32-c3-devkitm-1
+
+[env:sesame-s3]
+board = esp32-s3-devkitc-1
+`
+  assert.equal(CLI_ENV, 'sesame-cli')
+  // The shared [env] base is not an env section.
+  assert.deepEqual(parsePioEnv(ini), { env: 'sesame-cli', board: 'esp32-c6-devkitm-1' })
+  assert.equal(getEnvBoard(ini, 'sesame-cli'), 'esp32-c6-devkitm-1')
+  assert.equal(getEnvBoard(ini, 'sesame-s3'), 'esp32-s3-devkitc-1')
+  assert.equal(getEnvBoard(ini, 'nope'), null)
+  // A CLI board switch lands in the sandbox, whatever the chip.
+  const out = setEnvBoard(ini, 'sesame-cli', 'esp32-s3-devkitc-1')
+  assert.ok(out.includes('[env:sesame-cli]\nboard = esp32-s3-devkitc-1'))
+  // Chip release envs untouched.
+  assert.ok(out.includes('[env:sesame-c6]\nboard = esp32-c6-devkitm-1'))
+  assert.ok(out.includes('[env:sesame-c3]\nboard = esp32-c3-devkitm-1'))
+  assert.ok(out.includes('[env:sesame-s3]\nboard = esp32-s3-devkitc-1'))
+})
+
+test('setEnvBoard rewrites inside the named section only', () => {
+  const ini = `[env:sesame-c6]
+board = esp32-c6-devkitm-1
+
+[env:sesame-s3]
+board = esp32-s3-devkitc-1
+`
+  const out = setEnvBoard(ini, 'sesame-s3', 'esp32-s3-devkitm-1')
+  assert.ok(out.includes('[env:sesame-s3]\nboard = esp32-s3-devkitm-1'))
+  assert.ok(out.includes('[env:sesame-c6]\nboard = esp32-c6-devkitm-1'))
 })
 
 test('PIO-flashed and IDF-assumed partition tables agree', () => {

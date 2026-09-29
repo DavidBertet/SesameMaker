@@ -6,10 +6,14 @@
 # release. The web flasher fetches the manifest for the picked version and
 # burns factory.bin @0x0 + spiffs.bin at its partition offset.
 #
-# Asset layout per release ($TAG = vX.Y.Z):
-#   sesamemaker-esp32c6-$TAG-factory.bin   merged image, flash at 0x0
-#   sesamemaker-esp32c6-$TAG-spiffs.bin    web UI image, flash at 0x37C000
-#   sesamemaker-esp32c6-$TAG-manifest.json {version, chip, files:[{name, offset, size, sha256}]}
+# Asset layout per release ($TAG = vX.Y.Z, $CHIP = esp32c6/esp32c3/esp32s3):
+#   sesamemaker-$CHIP-$TAG-factory.bin   merged image, flash at 0x0 (browser)
+#   sesamemaker-$CHIP-$TAG-spiffs.bin    web UI image, flash at 0x37C000 (browser)
+#   sesamemaker-$CHIP-$TAG-app.bin       app image for on-device OTA (inactive ota_x slot)
+#   sesamemaker-$CHIP-$TAG-manifest.json {version, chip, files:[...], app:{...}, signature, key_id}
+# `files` (factory+spiffs, hex offsets) drive the browser flasher; `app`
+# drives on-device OTA. `signature` is ECDSA-P256 over the canonical manifest
+# (tools/sign_manifest.py) — the device rejects unsigned manifests.
 # SPIFFS offset comes from backend/partitions_4mb.csv — keep them in sync.
 
 name: Release firmware
@@ -24,6 +28,21 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - chip: esp32c6
+            pio_env: sesame-c6
+            manifest_chip: ESP32-C6
+            spiffs_offset: 0x37C000
+          - chip: esp32c3
+            pio_env: sesame-c3
+            manifest_chip: ESP32-C3
+            spiffs_offset: 0x37C000
+          - chip: esp32s3
+            pio_env: sesame-s3
+            manifest_chip: ESP32-S3
+            spiffs_offset: 0x37C000
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,8 +62,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install PlatformIO and esptool
-        run: pip install platformio esptool
+      - name: Install PlatformIO, esptool and signing deps
+        run: pip install platformio esptool cryptography
 
       - name: Firmware version
         run: |
@@ -58,52 +77,76 @@ jobs:
         working-directory: ./frontend
 
       - name: Build firmware
-        run: pio run -e sesame
+        run: pio run -e ${{ matrix.pio_env }}
         working-directory: ./backend
 
       - name: Build SPIFFS image
-        run: pio run -t buildfs -e sesame
+        run: pio run -t buildfs -e ${{ matrix.pio_env }}
         working-directory: ./backend
 
       - name: Merge factory image and manifest
+        env:
+          MERGE_CHIP: ${{ matrix.chip }}
         run: |
-          B=backend/.pio/build/sesame
+          B=backend/.pio/build/${{ matrix.pio_env }}
           TAG=${GITHUB_REF_NAME}
-          esptool.py --chip esp32c6 merge_bin \
+          CHIP=${MERGE_CHIP}
+          PREFIX="sesamemaker-${CHIP}-${TAG}"
+          esptool.py --chip ${CHIP} merge_bin \
             --flash-mode dio --flash-freq 80m --flash-size 4MB \
-            -o "sesamemaker-esp32c6-${TAG}-factory.bin" \
+            -o "${PREFIX}-factory.bin" \
             0x0 "$B/bootloader.bin" \
             0x8000 "$B/partitions.bin" \
             0xd000 "$B/ota_data_initial.bin" \
             0x10000 "$B/firmware.bin"
-          cp "$B/spiffs.bin" "sesamemaker-esp32c6-${TAG}-spiffs.bin"
-          python3 - "$TAG" <<'EOF'
-          import hashlib, json, os, sys
-          tag = sys.argv[1]
-          files = [
-              (f"sesamemaker-esp32c6-{tag}-factory.bin", "0x0"),
-              (f"sesamemaker-esp32c6-{tag}-spiffs.bin", "0x37C000"),
-          ]
-          manifest = {"version": tag, "chip": "ESP32-C6", "files": []}
-          for name, offset in files:
+          cp "$B/spiffs.bin" "${PREFIX}-spiffs.bin"
+          cp "$B/firmware.bin" "${PREFIX}-app.bin"
+          PREFIX="$PREFIX" MANIFEST_CHIP="${{ matrix.manifest_chip }}" SPIFFS_OFFSET="${{ matrix.spiffs_offset }}" python3 - <<'EOF'
+          import hashlib, json, os
+          prefix = os.environ["PREFIX"]
+          def entry(name, offset):
               h = hashlib.sha256()
               with open(name, "rb") as f:
                   for chunk in iter(lambda: f.read(65536), b""):
                       h.update(chunk)
-              manifest["files"].append(
-                  {"name": name, "offset": offset, "size": os.path.getsize(name),
-                   "sha256": h.hexdigest()}
-              )
-          with open(f"sesamemaker-esp32c6-{tag}-manifest.json", "w") as f:
+              return {"name": name, "offset": offset, "size": os.path.getsize(name),
+                      "sha256": h.hexdigest()}
+          manifest = {
+              "version": os.environ["GITHUB_REF_NAME"],
+              "chip": os.environ["MANIFEST_CHIP"],
+              "files": [
+                  entry(f"{prefix}-factory.bin", "0x0"),
+                  entry(f"{prefix}-spiffs.bin", os.environ["SPIFFS_OFFSET"]),
+              ],
+              "app": entry(f"{prefix}-app.bin", "ota"),
+          }
+          with open(f"{prefix}-manifest.json", "w") as f:
               json.dump(manifest, f, indent=2)
           print(json.dumps(manifest, indent=2))
           EOF
+
+      - name: Sign manifest (ECDSA-P256, key in OTA_SIGNING_KEY secret)
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          PREFIX="sesamemaker-${{ matrix.chip }}-${TAG}"
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::error::OTA_SIGNING_KEY secret not set — refusing to ship an unsigned manifest"
+            exit 1
+          fi
+          printf '%s' "$OTA_SIGNING_KEY" > /tmp/ota-signing-key.pem
+          python3 tools/sign_manifest.py sign \
+            --manifest "${PREFIX}-manifest.json" \
+            --key /tmp/ota-signing-key.pem --key-id 0
+          rm /tmp/ota-signing-key.pem
 
       - name: Create release with binaries
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            sesamemaker-esp32c6-*-factory.bin
-            sesamemaker-esp32c6-*-spiffs.bin
-            sesamemaker-esp32c6-*-manifest.json
+            sesamemaker-*-factory.bin
+            sesamemaker-*-spiffs.bin
+            sesamemaker-*-app.bin
+            sesamemaker-*-manifest.json
           generate_release_notes: true
