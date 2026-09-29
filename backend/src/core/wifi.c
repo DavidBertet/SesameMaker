@@ -23,8 +23,6 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-#define AP_WIFI_SSID "SesameMaker"
-#define AP_WIFI_PASS "StopNow!"
 #define AP_WIFI_CHANNEL 10
 #define MAX_AP_CONN 2
 

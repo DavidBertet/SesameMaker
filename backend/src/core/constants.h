@@ -44,6 +44,14 @@
 //   >0 = AP shuts off N seconds after it comes up (missed it? reboot).
 #define AP_AUTO_OFF_S 120
 
+// ==== SesameMaker: fallback setup AP identity ====
+// Broadcast while unprovisioned (see AP_AUTO_OFF_S above). Identical on
+// every unit by necessity — a headless device has nowhere to show a
+// per-unit password — so the auto-off window is the real protection.
+// Empty PASS = open AP (handled in wifi.c).
+#define AP_WIFI_SSID "SesameMaker"
+#define AP_WIFI_PASS "StopNow!"
+
 // ==== SesameMaker: task timing ====
 #define GARAGE_TICK_MS 25
 #define GARAGE_BROADCAST_INTERVAL_MS 1000
