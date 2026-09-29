@@ -1,9 +1,10 @@
 name: Deploy to GitHub Pages
 
 on:
-  # Runs on pushes targeting the default branch
+  # Demo site publishes with releases only — merges to main never publish.
   push:
-    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
@@ -74,44 +75,12 @@ jobs:
         with:
           path: ./frontend/dist
 
-  firmware:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Cache PlatformIO
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.platformio
-            ~/.cache/pip
-          key: ${{ runner.os }}-pio-${{ hashFiles('backend/platformio.ini') }}
-
-      - name: Install PlatformIO
-        run: pip install platformio
-
-      - name: Firmware version
-        run: |
-          echo "FW_VERSION=$(git describe --tags --always --dirty)" >> $GITHUB_ENV
-          echo "FW_GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Build firmware (all chip variants)
-        run: pio run -e sesame-c6 && pio run -e sesame-c3 && pio run -e sesame-s3
-        working-directory: ./backend
-
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: [lint-and-test, build, firmware]
+    needs: [lint-and-test, build]
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

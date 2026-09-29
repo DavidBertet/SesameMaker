@@ -1,0 +1,79 @@
+# CI proof per push (todo #1): validate only, never deploys or publishes.
+# Runs on main pushes and PRs. Releases (tags) run release.yml + deploy-page.yml.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Lint (Prettier + boundary)
+        run: npm run lint
+
+      - name: Run tests (CLI + frontend + backend host)
+        run: npm run test
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Test manifest signer
+        run: |
+          pip install cryptography
+          python3 tools/sign_manifest.test.py
+
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [sesame-c6, sesame-c3, sesame-s3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ runner.os }}-pio-${{ hashFiles('backend/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Firmware version
+        run: |
+          echo "FW_VERSION=$(git describe --tags --always --dirty)" >> $GITHUB_ENV
+          echo "FW_GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Build firmware (${{ matrix.env }})
+        run: pio run -e ${{ matrix.env }}
+        working-directory: ./backend
