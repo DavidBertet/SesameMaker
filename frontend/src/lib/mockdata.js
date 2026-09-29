@@ -187,6 +187,18 @@ export function generateMockResponse(data) {
     case 'get_settings':
       return [{ type: 'settings', ...settings }]
 
+    case 'set_settings':
+      if (data.time) {
+        settings.time = {
+          ntp_server: data.time.ntp_server || settings.time.ntp_server,
+          tz: data.time.tz ?? settings.time.tz,
+        }
+      }
+      return [
+        { type: 'settings_saved', success: true },
+        { type: 'settings', ...settings },
+      ]
+
     case 'get_garage_status':
       return [garageStatus()]
 
@@ -484,6 +496,10 @@ let settings = {
   wifi: {
     connected: false,
     setup: false,
+  },
+  time: {
+    ntp_server: 'pool.ntp.org',
+    tz: 'PST8PDT,M3.2.0,M11.1.0',
   },
   features: {
     zigbee: true,

@@ -53,6 +53,7 @@ static const char *fw_git_sha(void)
 
 #include "wifi.h"
 #include "constants.h"
+#include "ntp_sync.h"
 #include "zigbee_ieee.h"
 
 const char *TAG = "WS_SETTINGS";
@@ -75,10 +76,50 @@ void get_settings_info(char *buffer, size_t buffer_size)
     char ota_password[65];
     ota_password_get(ota_password, sizeof(ota_password));
     bool requiresOTAPassword = ota_password[0] != '\0';
+    char ntp_server[TIME_CFG_SERVER_MAX + 1];
+    char tz[TIME_CFG_TZ_MAX + 1];
+    time_config_get(ntp_server, sizeof(ntp_server), tz, sizeof(tz));
     snprintf(buffer, buffer_size,
-             "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"features\":{%s}}",
-             requiresOTAPassword ? "true" : "false", isWifiConnected ? "true" : "false", isWifiSetup ? "true" : "false",
-             s_feature_pairs);
+              "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"time\":{\"ntp_server\":\"%.63s\",\"tz\":\"%.63s\"},\"features\":{%s}}",
+              requiresOTAPassword ? "true" : "false", isWifiConnected ? "true" : "false", isWifiSetup ? "true" : "false",
+              ntp_server, tz, s_feature_pairs);
+}
+
+// Generic settings writer (core): partial update, one endpoint for every
+// current and future setting — no per-feature set_* endpoints. Unknown keys
+// are ignored so old/new firmwares and UIs mix safely.
+void ws_handle_set_settings(const cJSON *root, int sockfd)
+{
+    ESP_LOGI(TAG, "Received set_settings request");
+
+    bool ok = true;
+    cJSON *time = cJSON_GetObjectItem(root, "time");
+    if (cJSON_IsObject(time))
+    {
+        char server[TIME_CFG_SERVER_MAX + 1];
+        char tz[TIME_CFG_TZ_MAX + 1];
+        time_config_get(server, sizeof(server), tz, sizeof(tz));
+        cJSON *s = cJSON_GetObjectItem(time, "ntp_server");
+        cJSON *z = cJSON_GetObjectItem(time, "tz");
+        if (cJSON_IsString(s))
+            snprintf(server, sizeof(server), "%s", s->valuestring);
+        if (cJSON_IsString(z))
+            snprintf(tz, sizeof(tz), "%s", z->valuestring);
+        ok = time_config_set(server, tz);
+    }
+
+    if (ok)
+    {
+        snprintf(json, sizeof(json), "{\"type\":\"settings_saved\",\"success\":true}");
+        send_message_sockfd(json, sockfd);
+        broadcast_get_settings();
+    }
+    else
+    {
+        snprintf(json, sizeof(json),
+                  "{\"type\":\"settings_saved\",\"success\":false,\"message\":\"Invalid time config\"}");
+        send_message_sockfd(json, sockfd);
+    }
 }
 
 void ws_handle_get_settings(const cJSON *root, int sockfd)

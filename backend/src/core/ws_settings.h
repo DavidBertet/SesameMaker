@@ -5,6 +5,9 @@
 #include "cJSON.h"
 
 void ws_handle_get_settings(const cJSON *root, int sockfd);
+// Generic partial writer for the settings above (e.g. {"time": {...}}).
+// Unknown keys ignored; future settings ride this endpoint.
+void ws_handle_set_settings(const cJSON *root, int sockfd);
 void broadcast_get_settings(void);
 void ws_handle_time_update(const cJSON *root, int sockfd);
 void ws_handle_system_info(const cJSON *root, int sockfd);

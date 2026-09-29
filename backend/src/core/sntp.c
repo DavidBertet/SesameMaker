@@ -16,6 +16,7 @@
 #include "lwip/sys.h"
 
 #include "wifi.h"
+#include "storage.h"
 
 static const char *TAG = "NTP_TIME";
 
@@ -51,7 +52,7 @@ static void time_sync_notification_cb(struct timeval *tv)
     }
 }
 
-static void initialize_sntp(void)
+static void initialize_sntp(const char *server)
 {
     ESP_LOGI(TAG, "Initializing SNTP");
 
@@ -62,10 +63,43 @@ static void initialize_sntp(void)
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
 
     // Set the SNTP server
-    esp_sntp_setservername(0, NTP_SERVER);
+    esp_sntp_setservername(0, server);
 
     // Initialize SNTP service
     esp_sntp_init();
+}
+
+void time_config_get(char *server, size_t server_len, char *tz, size_t tz_len)
+{
+    if (server && server_len > 0)
+    {
+        if (read_str("ntp_server", server, server_len) != ESP_OK || server[0] == '\0')
+            snprintf(server, server_len, "%s", NTP_SERVER);
+    }
+    if (tz && tz_len > 0)
+    {
+        if (read_str("tz", tz, tz_len) != ESP_OK || tz[0] == '\0')
+            snprintf(tz, tz_len, "%s", NTP_TIMEZONE);
+    }
+}
+
+bool time_config_set(const char *server, const char *tz)
+{
+    if (!server || server[0] == '\0' || strlen(server) > TIME_CFG_SERVER_MAX)
+        return false;
+    if (!tz || strlen(tz) > TIME_CFG_TZ_MAX)
+        return false;
+    // Empty TZ means UTC.
+    if (write_str("ntp_server", server) != ESP_OK || write_str("tz", tz) != ESP_OK)
+        return false;
+    // TZ applies to the C library immediately; the SNTP server takes
+    // effect on the re-init below (esp_sntp_setservername is init-time).
+    setenv("TZ", tz[0] ? tz : "UTC0", 1);
+    tzset();
+    esp_sntp_stop();
+    initialize_sntp(server);
+    ESP_LOGI(TAG, "Time config updated: server=%s tz=%s", server, tz[0] ? tz : "UTC0");
+    return true;
 }
 
 static void ntp_time_task(void *pvParameters)
@@ -76,10 +110,14 @@ static void ntp_time_task(void *pvParameters)
 
     ESP_LOGI(TAG, "WiFi connected, starting NTP sync");
 
-    setenv("TZ", NTP_TIMEZONE, 1);
+    char server[TIME_CFG_SERVER_MAX + 1];
+    char tz[TIME_CFG_TZ_MAX + 1];
+    time_config_get(server, sizeof(server), tz, sizeof(tz));
+
+    setenv("TZ", tz[0] ? tz : "UTC0", 1);
     tzset();
 
-    initialize_sntp();
+    initialize_sntp(server);
 
     vTaskDelete(NULL);
 }

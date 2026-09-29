@@ -129,6 +129,7 @@ void app_main()
   register_callback("wifi_disconnect", ws_handle_wifi_disconnect);
 
   register_callback("get_settings", ws_handle_get_settings);
+  register_callback("set_settings", ws_handle_set_settings);
   register_callback("time_update", ws_handle_time_update);
   register_callback("get_system_info", ws_handle_system_info);
 
