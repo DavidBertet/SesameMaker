@@ -4,7 +4,7 @@
 # Sign a release flash manifest for on-device OTA verification.
 #
 # The device checks ECDSA-P256/SHA256 over canonical JSON before flashing
-# anything (see todo #6). Canonical form: the manifest WITHOUT the
+# anything. Canonical form: the manifest WITHOUT the
 # signature/key_id fields, json.dumps(sort_keys=True, separators=(',',':')).
 # The device recomputes exactly this, so the signer and firmware must agree
 # on field layout — keep both sides in sync.

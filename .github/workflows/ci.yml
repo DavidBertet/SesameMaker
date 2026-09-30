@@ -1,4 +1,4 @@
-# CI proof per push (todo #1): validate only, never deploys or publishes.
+# CI proof per push: validate only, never deploys or publishes.
 # Runs on main pushes and PRs. Releases (tags) run release.yml + deploy-page.yml.
 
 name: CI
