@@ -3,6 +3,7 @@
 #include "ota_update.h"
 
 #include "websocket.h"
+#include "wifi.h"
 
 #include "sdkconfig.h"
 
@@ -640,6 +641,69 @@ void ota_start_task(void)
     }
     s_updating = true;
     xTaskCreate(ota_update_task, "ota_update", OTA_TASK_STACK, NULL, 5, NULL);
+}
+
+// Health = WiFi up (reachable for the next update and serving the UI) plus
+// 30 s of stable runtime — or 10 min of plain uptime, whichever comes first.
+// The fallback matters for USB-flashed boards with no WiFi yet: health is
+// "runs without crashing", and a crash loop never reaches either bar, so it
+// still rolls back. A power cut inside the window rolls back a healthy image
+// too — accepted, same tradeoff as ESP-IDF's own rollback examples.
+#define OTA_CONFIRM_GRACE_MS 30000
+#define OTA_CONFIRM_UPTIME_FALLBACK_MS 600000
+
+static void ota_confirm_task(void *arg)
+{
+    (void)arg;
+    const esp_partition_t *running = esp_ota_get_boot_partition();
+    esp_ota_img_states_t state;
+    // Serial/factory images boot valid (or undefined) — nothing to confirm,
+    // so USB flows without WiFi are unaffected. Only OTA-staged slots boot
+    // pending and need the health check below.
+    if (!running || esp_ota_get_state_partition(running, &state) != ESP_OK ||
+        state != ESP_OTA_IMG_PENDING_VERIFY)
+    {
+        ESP_LOGD(TAG, "App slot not pending (%d), no confirmation needed", (int)state);
+        vTaskDelete(NULL);
+        return;
+    }
+    uint32_t boot_ms = 0;
+    bool wifi_ok = false;
+    uint32_t wifi_since = 0;
+    ESP_LOGI(TAG, "App slot pending verify, watching health");
+    while (1)
+    {
+        if (!wifi_ok && is_wifi_connected())
+        {
+            wifi_ok = true;
+            wifi_since = boot_ms;
+        }
+        if ((wifi_ok && boot_ms - wifi_since >= OTA_CONFIRM_GRACE_MS) ||
+            boot_ms >= OTA_CONFIRM_UPTIME_FALLBACK_MS)
+        {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        boot_ms += 1000;
+    }
+    if (esp_ota_get_state_partition(running, &state) == ESP_OK &&
+        state == ESP_OTA_IMG_PENDING_VERIFY)
+    {
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Boot healthy, app slot confirmed valid");
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Failed to confirm app slot");
+        }
+    }
+    vTaskDelete(NULL);
+}
+
+void ota_confirm_boot(void)
+{
+    xTaskCreate(ota_confirm_task, "ota_confirm", 3072, NULL, 5, NULL);
 }
 
 static void ota_check_worker(void *arg)

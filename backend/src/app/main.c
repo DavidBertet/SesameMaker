@@ -22,6 +22,7 @@
 #include "ws_homekit.h"
 #include "ws_mqtt.h"
 #include "ws_ota_update.h"
+#include "ota_update.h"
 #include "ws_wifi.h"
 #include "ws_settings.h"
 #include "ws_garage.h"
@@ -196,4 +197,7 @@ void app_main()
 
   // Retrieve time from network
   start_ntp_sync();
+
+  // Confirm the boot for app rollback (no-op unless this slot is pending).
+  ota_confirm_boot();
 }

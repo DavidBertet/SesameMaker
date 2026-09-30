@@ -39,6 +39,12 @@ const char *ota_chip_name(void);
 void ota_start_task(void);
 bool ota_update_in_progress(void);
 
+// Boot health confirmation for app rollback: after WiFi is up plus a grace
+// period, marks the running slot valid when it is still pending verify. A
+// slot that never confirms (crash loop, no WiFi) rolls back to the previous
+// image on the next reset. Safe to call every boot; no-op when valid.
+void ota_confirm_boot(void);
+
 // Current download progress while running (false when idle). Lets a client
 // that (re)connects mid-update pick up the stream via check_update.
 bool ota_update_progress(size_t *written, size_t *total);
