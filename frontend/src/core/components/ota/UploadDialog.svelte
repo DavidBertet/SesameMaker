@@ -132,6 +132,7 @@
 
 <!-- Upload Progress Dialog -->
 <Dialog.Root open={uploading}>
+  <Dialog.Overlay class="z-[110] bg-black/50 backdrop-blur-sm" />
   <Dialog.Content
     class="sm:max-w-md [&_[data-dialog-close]]:hidden"
     escapeKeydownBehavior="ignore"

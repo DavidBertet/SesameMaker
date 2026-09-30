@@ -9,7 +9,7 @@
   import DeviceTab from 'src/components/tab/DeviceTab.svelte'
   import WebsocketStatus from 'src/core/components/common/WebsocketStatus.svelte'
   import SystemStatus from 'src/core/components/nav/SystemStatus.svelte'
-  import UploadButton from 'src/core/components/ota/UploadButton.svelte'
+  import FirmwareUpdateButton from 'src/core/components/ota/FirmwareUpdateButton.svelte'
   import SidebarNav from 'src/core/components/nav/SidebarNav.svelte'
   import DarkModeToggle from 'src/core/components/common/DarkModeToggle.svelte'
   import DisconnectedOverlay from 'src/core/components/nav/DisconnectedOverlay.svelte'
@@ -183,7 +183,7 @@
           </div>
 
           <div class="flex flex-1 justify-end pe-3">
-            <UploadButton class="inline sm:hidden" />
+            <FirmwareUpdateButton class="inline sm:hidden" />
           </div>
         </div>
 
@@ -212,7 +212,7 @@
 
             <div class="flex flex-1 justify-end items-center gap-3">
               <DarkModeToggle />
-              <UploadButton class="hidden sm:inline" />
+              <FirmwareUpdateButton class="hidden sm:inline" />
               <WebsocketStatus />
             </div>
           </div>

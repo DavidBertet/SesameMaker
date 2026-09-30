@@ -187,6 +187,24 @@ export function generateMockResponse(data) {
     case 'get_settings':
       return [{ type: 'settings', ...settings }]
 
+    case 'check_update':
+      return [
+        {
+          type: 'update_status',
+          available: true,
+          current: 'v0.0.0-mock',
+          latest: 'v9.9.9-mock',
+        },
+      ]
+
+    case 'start_update':
+      return [
+        { type: 'ota_progress', phase: 'start', success: true },
+        { type: 'ota_progress', phase: 'download', written: 512, total: 1024 },
+        { type: 'ota_progress', phase: 'download', written: 1024, total: 1024, delay: 500 },
+        { type: 'ota_progress', phase: 'done', success: true, delay: 500 },
+      ]
+
     case 'set_settings':
       if (data.time) {
         settings.time = {

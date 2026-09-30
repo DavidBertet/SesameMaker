@@ -5,7 +5,7 @@
 </script>
 
 <div
-  class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+  class="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
 >
   <div
     class="bg-background border border-border rounded-xl shadow-2xl max-w-md w-full p-8 text-center space-y-6 animate-in fade-in-0 zoom-in-95 duration-300"
