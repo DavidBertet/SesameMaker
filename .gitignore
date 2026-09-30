@@ -14,6 +14,8 @@ dist
 node_modules
 
 data
+# Local OTA test releases (dev keypair + binaries, see tools/ota_dev_release.sh).
+build/
 .vscode/
 
 # KiCad project-local and lock files

@@ -69,6 +69,31 @@ class SignManifestTest(unittest.TestCase):
         r = run("verify", "--manifest", self.manifest, "--pubkey", other_pub)
         self.assertNotEqual(r.returncode, 0)
 
+    def test_canonical_bytes_are_golden(self):
+        # The firmware rebuilds these exact bytes in ota_update.c
+        # (ota_canonical). If this changes, the C side must change with it
+        # or every signature fails.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(TOOL)))
+        from sign_manifest import canonical_bytes
+
+        payload = canonical_bytes(
+            {
+                "version": "v1.0.0",
+                "chip": "ESP32-C6",
+                "files": [{"name": "f.bin", "offset": "0x0", "size": 100, "sha256": "aa"}],
+                "app": {"name": "a.bin", "offset": "ota", "size": 200, "sha256": "bb"},
+                "signature": "ignored",
+                "key_id": 7,
+            }
+        )
+        self.assertEqual(
+            payload,
+            b'{"app":{"name":"a.bin","offset":"ota","sha256":"bb","size":200},'
+            b'"chip":"ESP32-C6",'
+            b'"files":[{"name":"f.bin","offset":"0x0","sha256":"aa","size":100}],'
+            b'"version":"v1.0.0"}',
+        )
+
     def test_sign_is_deterministic_input_stable(self):
         # Same content signed twice verifies both times (ECDSA randomness is
         # fine — what matters is the canonical bytes are stable).

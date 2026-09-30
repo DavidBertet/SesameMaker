@@ -21,6 +21,7 @@
 #include "websocket.h"
 #include "ws_homekit.h"
 #include "ws_mqtt.h"
+#include "ws_ota_update.h"
 #include "ws_wifi.h"
 #include "ws_settings.h"
 #include "ws_garage.h"
@@ -130,6 +131,8 @@ void app_main()
 
   register_callback("get_settings", ws_handle_get_settings);
   register_callback("set_settings", ws_handle_set_settings);
+  register_callback("check_update", ws_handle_check_update);
+  register_callback("start_update", ws_handle_start_update);
   register_callback("time_update", ws_handle_time_update);
   register_callback("get_system_info", ws_handle_system_info);
 
