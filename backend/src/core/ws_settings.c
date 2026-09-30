@@ -34,6 +34,7 @@ static const char *fw_git_sha(void)
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "esp_flash.h"
+#include "esp_ota_ops.h"
 #include "esp_chip_info.h"
 #include "esp_cpu.h"
 #include "esp_mac.h"
@@ -485,13 +486,68 @@ void get_system_info(char *buffer, size_t buffer_size)
         zigbee_format_eui64(eui64, zigbee_eui_str);
 #endif
 
+    // OTA slot health for rollback surfacing: running slot + state, and
+    // whether the other slot looks rejected (INVALID after a rollback or a
+    // failed update). SystemTab renders these generically.
+    char ota_slot_str[16] = "n/a";
+    char ota_state_str[16] = "n/a";
+    bool rolled_back = false;
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *running_part = esp_ota_get_boot_partition();
+    if (running_part)
+    {
+        snprintf(ota_slot_str, sizeof(ota_slot_str), "%.15s", running_part->label);
+        esp_ota_img_states_t ota_state;
+        if (esp_ota_get_state_partition(running_part, &ota_state) == ESP_OK)
+        {
+            const char *s = "unknown";
+            switch (ota_state)
+            {
+            case ESP_OTA_IMG_NEW:
+                s = "new";
+                break;
+            case ESP_OTA_IMG_PENDING_VERIFY:
+                s = "pending";
+                break;
+            case ESP_OTA_IMG_VALID:
+                s = "valid";
+                break;
+            case ESP_OTA_IMG_INVALID:
+                s = "invalid";
+                break;
+            case ESP_OTA_IMG_ABORTED:
+                s = "aborted";
+                break;
+            default:
+                break;
+            }
+            snprintf(ota_state_str, sizeof(ota_state_str), "%s", s);
+        }
+        // The slot we are NOT running: rejected means a rollback (or failed
+        // update) put us back here.
+        const esp_partition_t *next = esp_ota_get_next_update_partition(running_part);
+        if (next)
+        {
+            esp_ota_img_states_t next_state;
+            if (esp_ota_get_state_partition(next, &next_state) == ESP_OK &&
+                next_state == ESP_OTA_IMG_INVALID)
+            {
+                rolled_back = true;
+            }
+        }
+    }
+#endif
+
     // Build the JSON response with grouped sections
     snprintf(buffer, buffer_size,
              "\"device\": {"
              "\"status\": \"Online and operational\","
              "\"reset_reason\": \"%s\","
              "\"uptime\": \"%s\","
-             "\"time\": \"%s\""
+             "\"time\": \"%s\","
+             "\"ota_slot\": \"%s\","
+             "\"ota_state\": \"%s\","
+             "\"rolled_back\": %s"
              "},"
              "\"system\": {"
              "\"idf_version\": \"%s\","
@@ -530,6 +586,9 @@ void get_system_info(char *buffer, size_t buffer_size)
              reset_reason_str,
              uptime_str,
              time_str,
+             ota_slot_str,
+             ota_state_str,
+             rolled_back ? "true" : "false",
              // System section
              esp_get_idf_version(),
              fw_version(),
