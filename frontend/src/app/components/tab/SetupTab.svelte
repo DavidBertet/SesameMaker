@@ -26,19 +26,19 @@
       id: 'esp32c6',
       label: 'ESP32-C6 (Zigbee)',
       expectedChip: 'ESP32-C6',
-      manifestNameFor: (tag) => `sesamemaker-esp32c6-${tag}-manifest.json`,
+      manifestName: 'sesamemaker-esp32c6-manifest.json',
     },
     {
       id: 'esp32c3',
       label: 'ESP32-C3',
       expectedChip: 'ESP32-C3',
-      manifestNameFor: (tag) => `sesamemaker-esp32c3-${tag}-manifest.json`,
+      manifestName: 'sesamemaker-esp32c3-manifest.json',
     },
     {
       id: 'esp32s3',
       label: 'ESP32-S3',
       expectedChip: 'ESP32-S3',
-      manifestNameFor: (tag) => `sesamemaker-esp32s3-${tag}-manifest.json`,
+      manifestName: 'sesamemaker-esp32s3-manifest.json',
     },
   ]
 

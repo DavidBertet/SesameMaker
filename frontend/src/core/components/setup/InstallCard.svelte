@@ -23,8 +23,8 @@
   let {
     owner,
     repo,
-    // One firmware per chip: [{id, label, expectedChip, manifestNameFor}].
-    // The board picker offers every variant the release builds.
+    // One firmware per chip: [{id, label, expectedChip, manifestName}].
+    // manifestName is stable across releases (version lives inside).
     variants = [],
     onInstalled = () => {},
   } = $props()
@@ -79,7 +79,7 @@
         owner,
         repo,
         tag: pickedTag,
-        manifestName: pickedVariant.manifestNameFor(pickedTag),
+        manifestName: pickedVariant.manifestName,
         expectedChip: pickedVariant.expectedChip || null,
         eraseAll,
         onProgress: (p) => (flashProgress = p),
