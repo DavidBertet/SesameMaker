@@ -13,6 +13,7 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_partition.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -416,6 +417,34 @@ bool ota_fetch_manifest(ota_manifest_t *out, char *err, size_t errlen)
     snprintf(out->app_name, sizeof(out->app_name), "%s", app_name->valuestring);
     snprintf(out->app_sha256, sizeof(out->app_sha256), "%s", app_sha->valuestring);
     out->app_size = (size_t)app_size->valueint;
+    // Web UI image: the files[] entry ending in -spiffs.bin. Required —
+    // flashing firmware without its UI leaves a skewed device.
+    out->spiffs_name[0] = '\0';
+    const cJSON *entry = NULL;
+    cJSON_ArrayForEach(entry, files)
+    {
+        const cJSON *nm = cJSON_GetObjectItem(entry, "name");
+        const cJSON *sh = cJSON_GetObjectItem(entry, "sha256");
+        const cJSON *sz = cJSON_GetObjectItem(entry, "size");
+        if (!cJSON_IsString(nm) || !cJSON_IsString(sh) || !cJSON_IsNumber(sz))
+        {
+            continue;
+        }
+        size_t nlen = strlen(nm->valuestring);
+        if (nlen > 11 && strcmp(nm->valuestring + nlen - 11, "-spiffs.bin") == 0 &&
+            strlen(sh->valuestring) == 64 && json_safe(nm->valuestring, 127))
+        {
+            snprintf(out->spiffs_name, sizeof(out->spiffs_name), "%s", nm->valuestring);
+            snprintf(out->spiffs_sha256, sizeof(out->spiffs_sha256), "%s", sh->valuestring);
+            out->spiffs_size = (size_t)sz->valueint;
+        }
+    }
+    if (out->spiffs_name[0] == '\0' || out->spiffs_size == 0)
+    {
+        snprintf(err, errlen, "manifest has no web UI image");
+        cJSON_Delete(root);
+        return false;
+    }
     if (strcmp(out->chip, ota_chip_name()) != 0)
     {
         snprintf(err, errlen, "manifest targets %s, this is %s", out->chip, ota_chip_name());
@@ -486,20 +515,88 @@ static void ota_progress(const char *phase, size_t written, size_t total, bool d
     broadcast_message(json);
 }
 
-// Manifest directory + app file name = download URL (same release).
-static void ota_app_url(const ota_manifest_t *m, char *out, size_t outlen)
+// Stream url into a raw partition (erased first), SHA256-checked against
+// sha_hex, progress broadcast under phase. The partition must already be
+// sized-checked by the caller.
+static bool ota_download_image(const char *url, size_t total, const char *sha_hex,
+                               const char *phase, const esp_partition_t *part)
 {
-    int w = snprintf(out, outlen, "%s/sesamemaker-%s-manifest.json", ota_base(), CONFIG_IDF_TARGET);
-    if (w <= 0 || (size_t)w >= outlen)
+    esp_http_client_config_t config = {
+        .url = url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client || esp_http_client_open(client, 0) != ESP_OK)
     {
-        out[0] = '\0';
-        return;
+        ota_progress(NULL, 0, 0, true, false, "cannot download web UI image");
+        if (client)
+        {
+            esp_http_client_cleanup(client);
+        }
+        return false;
     }
-    char *slash = strrchr(out, '/');
-    if (slash)
+    esp_http_client_fetch_headers(client);
+    if (esp_http_client_get_status_code(client) != 200)
     {
-        snprintf(slash + 1, outlen - (size_t)(slash + 1 - out), "%s", m->app_name);
+        ota_progress(NULL, 0, 0, true, false, "web UI download answered HTTP error");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return false;
     }
+    size_t erase_len = (total + 0xFFFF) & ~(size_t)0xFFFF;
+    if (erase_len > part->size)
+    {
+        erase_len = part->size;
+    }
+    if (esp_partition_erase_range(part, 0, erase_len) != ESP_OK)
+    {
+        ota_progress(NULL, 0, 0, true, false, "cannot erase web UI partition");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return false;
+    }
+    uint8_t chunk[OTA_HTTP_BUF];
+    size_t written = 0;
+    size_t last_report = 0;
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    mbedtls_sha256_starts(&sha, 0);
+    bool failed = false;
+    int n;
+    while ((n = esp_http_client_read(client, (char *)chunk, sizeof(chunk))) > 0)
+    {
+        if (written + (size_t)n > total ||
+            esp_partition_write(part, written, chunk, (size_t)n) != ESP_OK)
+        {
+            failed = true;
+            break;
+        }
+        mbedtls_sha256_update(&sha, chunk, (size_t)n);
+        written += (size_t)n;
+        if (written - last_report >= total / 20 || written == total)
+        {
+            ota_progress(phase, written, total, false, false, NULL);
+            last_report = written;
+        }
+    }
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    uint8_t digest[32];
+    mbedtls_sha256_finish(&sha, digest);
+    mbedtls_sha256_free(&sha);
+    char hex[65];
+    for (int i = 0; i < 32; i++)
+    {
+        snprintf(hex + 2 * i, 3, "%02x", digest[i]);
+    }
+    if (failed || n < 0 || written != total || strcmp(hex, sha_hex) != 0)
+    {
+        ota_progress(NULL, 0, 0, true, false,
+                     failed ? "web UI write failed" : "web UI hash mismatch");
+        return false;
+    }
+    return true;
 }
 
 static void ota_update_task(void *arg)
@@ -522,8 +619,62 @@ static void ota_update_task(void *arg)
         return;
     }
 
-    char url[256];
-    ota_app_url(&m, url, sizeof(url));
+    // Web UI first: a failure here aborts before the app is touched, so the
+    // device keeps running the old pair instead of a skewed mix. The UI is
+    // unreadable mid-write (we serve from this partition) — the reboot at
+    // the end follows immediately.
+    char base[192];
+    snprintf(base, sizeof(base), "%s/sesamemaker-%s-manifest.json", ota_base(), CONFIG_IDF_TARGET);
+    char *slash = strrchr(base, '/');
+    if (!slash)
+    {
+        ota_progress(NULL, 0, 0, true, false, "bad manifest URL");
+        s_updating = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    *slash = '\0';
+    char url[384];
+    int uw = snprintf(url, sizeof(url), "%s/%s", base, m.spiffs_name);
+    if (uw <= 0 || (size_t)uw >= sizeof(url))
+    {
+        ota_progress(NULL, 0, 0, true, false, "bad download URL");
+        s_updating = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    const esp_partition_t *spiffs =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+    // buildfs images are partition-sized; erase the rounded image range,
+    // capped at the partition (never beyond it).
+    size_t erase_len = (m.spiffs_size + 0xFFFF) & ~(size_t)0xFFFF;
+    if (!spiffs || m.spiffs_size == 0 || m.spiffs_size > spiffs->size)
+    {
+        ota_progress(NULL, 0, 0, true, false, "no room for web UI image");
+        s_updating = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    if (erase_len > spiffs->size)
+    {
+        erase_len = spiffs->size;
+    }
+    if (!ota_download_image(url, m.spiffs_size, m.spiffs_sha256, "filesystem", spiffs))
+    {
+        s_updating = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    ESP_LOGI(TAG, "Web UI image staged (%d bytes)", (int)m.spiffs_size);
+
+    uw = snprintf(url, sizeof(url), "%s/%s", base, m.app_name);
+    if (uw <= 0 || (size_t)uw >= sizeof(url))
+    {
+        ota_progress(NULL, 0, 0, true, false, "bad download URL");
+        s_updating = false;
+        vTaskDelete(NULL);
+        return;
+    }
     esp_http_client_config_t config = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,

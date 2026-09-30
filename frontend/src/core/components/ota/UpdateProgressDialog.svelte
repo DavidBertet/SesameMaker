@@ -27,7 +27,8 @@
           Installing update — rebooting…
         {:else}
           <ArrowDownToLine class="size-5" />
-          {blocking?.phase === 'upload' ? 'Uploading firmware…' : 'Downloading update…'}
+          {#if blocking?.phase === 'upload'}Uploading firmware…{:else if blocking?.phase ===
+            'filesystem'}Updating web files…{:else}Downloading update…{/if}
         {/if}
       </Dialog.Title>
     </Dialog.Header>

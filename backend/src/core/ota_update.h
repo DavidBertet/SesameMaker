@@ -13,7 +13,8 @@
 // The WS layer (ws_ota_update.c) maps these onto endpoints; progress and
 // results go out as broadcasts so every client sees them.
 
-// Verified manifest: version/chip/app image only (browser `files` ignored).
+// Verified manifest: version/chip/app image + web UI image (browser
+// `files` entries besides spiffs are ignored).
 typedef struct
 {
     char version[32];
@@ -21,6 +22,9 @@ typedef struct
     char app_name[128];
     char app_sha256[65];
     size_t app_size;
+    char spiffs_name[128];
+    char spiffs_sha256[65];
+    size_t spiffs_size;
 } ota_manifest_t;
 
 // Fetch + signature-verify + parse the release manifest. False with a
