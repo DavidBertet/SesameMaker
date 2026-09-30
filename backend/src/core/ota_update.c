@@ -31,12 +31,20 @@ static const char *TAG = "OTA_UPDATE";
 #endif
 #define OTA_RELEASE_BASE_DEFAULT "https://github.com/DavidBertet/SesameMaker/releases/latest/download"
 
-// Release ECDSA-P256 public key: 130 hex chars (uncompressed point without
-// the 0x04 prefix). Empty = no key baked = updates refused. Overridable for
-// local testing (export OTA_PUBKEY_HEX with the dev key).
+// Release ECDSA-P256 public key: 128 hex chars (uncompressed point without
+// the 0x04 prefix). Production key baked below (public by design);
+// OTA_PUBKEY_HEX overrides it for local testing (export it pointed at
+// tools/ota_dev_release.sh output). Empty override + empty default =
+// on-device updates refused.
 #ifndef OTA_PUBKEY_HEX
 #define OTA_PUBKEY_HEX ""
 #endif
+#define OTA_PUBKEY_DEFAULT "0c8c9b162c9fcf3e446d3ecdcce1590e9c5785e3e1f5be3da9ad7335aa75384ee849750fbd29f9433d3676e95feb4a36ded9a43ff209ad03dcdd405dfebd3b23"
+
+static const char *ota_pubkey_hex(void)
+{
+    return OTA_PUBKEY_HEX[0] ? OTA_PUBKEY_HEX : OTA_PUBKEY_DEFAULT;
+}
 
 #define OTA_TASK_STACK 16384
 #define OTA_HTTP_BUF 2048
@@ -49,14 +57,15 @@ static const char *ota_base(void)
 
 static bool ota_pubkey(uint8_t out[64])
 {
-    if (strlen(OTA_PUBKEY_HEX) != 128)
+    const char *hex = ota_pubkey_hex();
+    if (strlen(hex) != 128)
     {
         return false;
     }
     for (int i = 0; i < 64; i++)
     {
         unsigned int byte;
-        if (sscanf(OTA_PUBKEY_HEX + 2 * i, "%2x", &byte) != 1)
+        if (sscanf(hex + 2 * i, "%2x", &byte) != 1)
         {
             return false;
         }
