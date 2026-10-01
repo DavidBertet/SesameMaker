@@ -30,6 +30,9 @@ static left_open_state_t s_state;
 // Set when we commanded an auto-close; cleared (with a closed event) on the
 // first poll showing the door shut — closing the notify loop.
 static bool s_close_commanded = false;
+// Set on the first BLINK poll, cleared on close: restores the opener light
+// to its pre-blink state after the auto-close (lost on reboot — best effort).
+static bool s_blinked = false;
 
 static void load_cfg(left_open_cfg_t *cfg)
 {
@@ -135,13 +138,18 @@ static void left_open_task(void *arg)
         load_cfg(&cfg);
         bool open = false;
         bool obstructed = false;
+        bool light_on = false;
+        bool light_capable = false;
         if (garage_controller_get_state(&gs) == ESP_OK)
         {
             open = gs.door_state == SECPLUS1_DOOR_OPEN;
             obstructed = gs.obstruction;
+            light_capable = gs.caps.light;
+            light_on = gs.light_state == GARAGE_LIGHT_ON;
         }
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
-        uint8_t actions = left_open_step(&s_state, now_ms, open, obstructed, &cfg);
+        uint8_t actions =
+            left_open_step(&s_state, now_ms, open, obstructed, light_on, light_capable, &cfg);
         uint32_t elapsed_s =
             s_state.open ? (now_ms - s_state.open_since_ms) / 1000 : 0;
         if (!open && s_close_commanded)
@@ -149,6 +157,17 @@ static void left_open_task(void *arg)
             s_close_commanded = false;
             ESP_LOGI(TAG, "Auto-closed door confirmed shut");
             emit_event("closed", 0, &cfg);
+        }
+        if (!open)
+        {
+            s_blinked = false;
+        }
+        if (actions & LEFT_OPEN_BLINK)
+        {
+            // 1 Hz warning blink while the window runs (dry-contact never
+            // gets here: the machine skips the window without a light).
+            s_blinked = true;
+            garage_controller_light_action(((now_ms / 1000) % 2) ? "on" : "off");
         }
         if (actions & LEFT_OPEN_WARN)
         {
@@ -163,6 +182,11 @@ static void left_open_task(void *arg)
         if (actions & LEFT_OPEN_CLOSE)
         {
             ESP_LOGW(TAG, "Auto-closing after %us open", (unsigned)elapsed_s);
+            if (s_blinked)
+            {
+                s_blinked = false;
+                garage_controller_light_action(s_state.light_was_on ? "on" : "off");
+            }
             if (garage_controller_door_action("close") == ESP_OK)
             {
                 s_close_commanded = true;
@@ -191,12 +215,13 @@ static void send_config(int sockfd)
 {
     left_open_cfg_t cfg;
     load_cfg(&cfg);
-    char json[384];
+    char json[448];
     snprintf(json, sizeof(json),
              "{\"type\":\"left_open_config\",\"enabled\":%s,\"warn_s\":%u,\"close_s\":%u,"
-             "\"webhook\":\"%.127s\",\"open\":%s,\"elapsed_s\":%u}",
+             "\"blink_light\":%s,\"webhook\":\"%.127s\",\"open\":%s,\"elapsed_s\":%u}",
              cfg.enabled ? "true" : "false", (unsigned)cfg.warn_s, (unsigned)cfg.close_s,
-             cfg.webhook, s_state.open ? "true" : "false",
+             cfg.blink_light ? "true" : "false", cfg.webhook,
+             s_state.open ? "true" : "false",
              s_state.open ? (unsigned)((uint32_t)(esp_timer_get_time() / 1000) -
                                        s_state.open_since_ms) /
                                 1000
@@ -230,6 +255,11 @@ void ws_handle_set_left_open(const cJSON *root, int sockfd)
     if (cJSON_IsNumber(c))
     {
         cfg.close_s = (uint32_t)c->valueint;
+    }
+    cJSON *bl = cJSON_GetObjectItem(root, "blink_light");
+    if (cJSON_IsBool(bl))
+    {
+        cfg.blink_light = cJSON_IsTrue(bl);
     }
     cJSON *wh = cJSON_GetObjectItem(root, "webhook");
     if (cJSON_IsString(wh))
