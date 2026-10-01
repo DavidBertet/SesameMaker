@@ -552,7 +552,7 @@ let settings = {
   },
   time: {
     ntp_server: 'pool.ntp.org',
-    tz: 'PST8PDT,M3.2.0,M11.1.0',
+    tz: 'MST7',
     tz_name: 'America/Vancouver',
   },
   features: {

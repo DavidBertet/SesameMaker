@@ -2,6 +2,9 @@
 // IANA name -> POSIX TZ string, generated from nayarsystems/posix_tz_db zones.csv.
 // Firmware setenv(TZ) only understands POSIX, browsers only list IANA:
 // this table is the bridge (user picks a name, device gets the rule).
+// MANUAL PATCHES (upstream lags legislation — recheck on regenerate):
+// - America/Vancouver: MST7 — BC permanent UTC-7 since 2026-11-01 (IANA
+//   tzdb 2026b; posix_tz_db still ships the old shared PST8PDT rule).
 export const TIMEZONES = {
   'Africa/Abidjan': 'GMT0',
   'Africa/Accra': 'GMT0',
@@ -199,7 +202,7 @@ export const TIMEZONES = {
   'America/Tijuana': 'PST8PDT,M3.2.0,M11.1.0',
   'America/Toronto': 'EST5EDT,M3.2.0,M11.1.0',
   'America/Tortola': 'AST4',
-  'America/Vancouver': 'PST8PDT,M3.2.0,M11.1.0',
+  'America/Vancouver': 'MST7',
   'America/Whitehorse': 'MST7',
   'America/Winnipeg': 'CST6CDT,M3.2.0,M11.1.0',
   'America/Yakutat': 'AKST9AKDT,M3.2.0,M11.1.0',
