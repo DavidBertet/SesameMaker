@@ -83,15 +83,33 @@ void time_config_get(char *server, size_t server_len, char *tz, size_t tz_len)
     }
 }
 
-bool time_config_set(const char *server, const char *tz)
+void time_config_name(char *buf, size_t len)
+{
+    if (!buf || len == 0)
+    {
+        return;
+    }
+    if (read_str("tz_name", buf, len) != ESP_OK)
+    {
+        buf[0] = '\0';
+    }
+}
+
+bool time_config_set(const char *server, const char *tz, const char *name)
 {
     if (!server || server[0] == '\0' || strlen(server) > TIME_CFG_SERVER_MAX)
         return false;
     if (!tz || strlen(tz) > TIME_CFG_TZ_MAX)
         return false;
+    if (name && strlen(name) > TIME_CFG_TZ_MAX)
+        return false;
     // Empty TZ means UTC.
     if (write_str("ntp_server", server) != ESP_OK || write_str("tz", tz) != ESP_OK)
         return false;
+    if (name)
+    {
+        write_str("tz_name", name);
+    }
     // TZ applies to the C library immediately; the SNTP server takes
     // effect on the re-init below (esp_sntp_setservername is init-time).
     setenv("TZ", tz[0] ? tz : "UTC0", 1);

@@ -244,6 +244,7 @@ export function generateMockResponse(data) {
         settings.time = {
           ntp_server: data.time.ntp_server || settings.time.ntp_server,
           tz: data.time.tz ?? settings.time.tz,
+          tz_name: data.time.tz_name ?? settings.time.tz_name,
         }
       }
       return [
@@ -552,6 +553,7 @@ let settings = {
   time: {
     ntp_server: 'pool.ntp.org',
     tz: 'PST8PDT,M3.2.0,M11.1.0',
+    tz_name: 'America/Vancouver',
   },
   features: {
     zigbee: true,

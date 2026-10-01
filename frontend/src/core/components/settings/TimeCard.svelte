@@ -76,7 +76,9 @@
     // No reads of timeForm here: this runs inside an $effect, and reading
     // form state would re-trigger it on every keystroke/selection.
     timeForm.ntp_server = t.ntp_server || ''
-    timeForm.tz = posixToName(t.tz || '')
+    // Prefer the stored display name (cities share POSIX rules); fall back
+    // to reverse-mapping the rule itself.
+    timeForm.tz = t.tz_name || posixToName(t.tz || '')
   }
 
   function handleTimeSaved(data) {
@@ -102,7 +104,9 @@
       return
     }
     timeSaving = true
-    saveSettings({ time: { ntp_server: timeForm.ntp_server.trim(), tz } })
+    saveSettings({
+      time: { ntp_server: timeForm.ntp_server.trim(), tz, tz_name: timeForm.tz.trim() },
+    })
   }
 
   function useBrowserTz() {

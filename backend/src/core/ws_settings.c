@@ -79,11 +79,13 @@ void get_settings_info(char *buffer, size_t buffer_size)
     bool requiresOTAPassword = ota_password[0] != '\0';
     char ntp_server[TIME_CFG_SERVER_MAX + 1];
     char tz[TIME_CFG_TZ_MAX + 1];
+    char tz_name[TIME_CFG_TZ_MAX + 1];
     time_config_get(ntp_server, sizeof(ntp_server), tz, sizeof(tz));
+    time_config_name(tz_name, sizeof(tz_name));
     snprintf(buffer, buffer_size,
-              "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"time\":{\"ntp_server\":\"%.63s\",\"tz\":\"%.63s\"},\"features\":{%s}}",
+              "{\"type\":\"settings\",\"ota\":{\"requiresPassword\":%s},\"wifi\":{\"connected\":%s,\"setup\":%s},\"time\":{\"ntp_server\":\"%.63s\",\"tz\":\"%.63s\",\"tz_name\":\"%.63s\"},\"features\":{%s}}",
               requiresOTAPassword ? "true" : "false", isWifiConnected ? "true" : "false", isWifiSetup ? "true" : "false",
-              ntp_server, tz, s_feature_pairs);
+              ntp_server, tz, tz_name, s_feature_pairs);
 }
 
 // Generic settings writer (core): partial update, one endpoint for every
@@ -99,14 +101,19 @@ void ws_handle_set_settings(const cJSON *root, int sockfd)
     {
         char server[TIME_CFG_SERVER_MAX + 1];
         char tz[TIME_CFG_TZ_MAX + 1];
+        char name[TIME_CFG_TZ_MAX + 1];
         time_config_get(server, sizeof(server), tz, sizeof(tz));
+        time_config_name(name, sizeof(name));
         cJSON *s = cJSON_GetObjectItem(time, "ntp_server");
         cJSON *z = cJSON_GetObjectItem(time, "tz");
+        cJSON *n = cJSON_GetObjectItem(time, "tz_name");
         if (cJSON_IsString(s))
             snprintf(server, sizeof(server), "%s", s->valuestring);
         if (cJSON_IsString(z))
             snprintf(tz, sizeof(tz), "%s", z->valuestring);
-        ok = time_config_set(server, tz);
+        if (cJSON_IsString(n))
+            snprintf(name, sizeof(name), "%s", n->valuestring);
+        ok = time_config_set(server, tz, name);
     }
 
     if (ok)

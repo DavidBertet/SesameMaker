@@ -26,10 +26,14 @@ void start_ntp_sync(void);
 
 // Effective values (NVS, else build default). Always NUL-terminated.
 void time_config_get(char *server, size_t server_len, char *tz, size_t tz_len);
+// Display name for the timezone (IANA, e.g. "America/Vancouver"), "" when
+// never set. Round-trips the UI pick: cities sharing one POSIX rule would
+// otherwise collapse to whichever the UI lists first.
+void time_config_name(char *buf, size_t len);
 
 // Persist + apply live (TZ immediately, SNTP server on re-init below).
-// False on oversize/empty server.
-bool time_config_set(const char *server, const char *tz);
+// False on oversize/empty server. name is stored verbatim for display.
+bool time_config_set(const char *server, const char *tz, const char *name);
 
 // Utility function to check if time is set
 bool is_time_set(void);
