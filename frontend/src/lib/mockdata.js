@@ -187,6 +187,37 @@ export function generateMockResponse(data) {
     case 'get_settings':
       return [{ type: 'settings', ...settings }]
 
+    case 'get_left_open':
+      return [
+        {
+          type: 'left_open_config',
+          enabled: mockLeftOpen.enabled,
+          warn_s: mockLeftOpen.warn_s,
+          close_s: mockLeftOpen.close_s,
+          webhook: mockLeftOpen.webhook,
+          open: false,
+          elapsed_s: 0,
+        },
+      ]
+
+    case 'set_left_open':
+      mockLeftOpen.enabled = !!data.enabled
+      mockLeftOpen.warn_s = data.warn_s || 0
+      mockLeftOpen.close_s = data.close_s || 0
+      mockLeftOpen.webhook = data.webhook || ''
+      return [
+        { type: 'left_open_saved', success: true },
+        {
+          type: 'left_open_config',
+          enabled: mockLeftOpen.enabled,
+          warn_s: mockLeftOpen.warn_s,
+          close_s: mockLeftOpen.close_s,
+          webhook: mockLeftOpen.webhook,
+          open: false,
+          elapsed_s: 0,
+        },
+      ]
+
     case 'check_update':
       return [
         {
@@ -522,6 +553,13 @@ let settings = {
   features: {
     zigbee: true,
   },
+}
+
+let mockLeftOpen = {
+  enabled: false,
+  warn_s: 600,
+  close_s: 0,
+  webhook: '',
 }
 
 let mqtt = {

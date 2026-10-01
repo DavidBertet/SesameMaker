@@ -88,7 +88,7 @@
   })
 </script>
 
-<Card.Root>
+<Card.Root class="mt-6">
   <Card.Header class="pb-3">
     <div class="flex items-center justify-between">
       <div class="space-y-1">

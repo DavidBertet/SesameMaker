@@ -4,6 +4,7 @@
   with SesameMaker copy. Card logic lives in src/core/components/settings/. -->
 <script>
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
+  import LeftOpenCard from 'src/app/components/door/LeftOpenCard.svelte'
   import MqttCard from 'src/core/components/settings/MqttCard.svelte'
   import ZigbeeCard from 'src/core/components/settings/ZigbeeCard.svelte'
   import HomekitCard from 'src/core/components/settings/HomekitCard.svelte'
@@ -12,7 +13,8 @@
 
 <SectionHeader title="Device Settings" subtitle="MQTT bridge, Zigbee, HomeKit and time" />
 
-<MqttCard />
+<LeftOpenCard />
+<MqttCard class="mt-6" />
 <ZigbeeCard
   description="Join a Zigbee network as plain switches: door, light and remote lockout. Endpoints follow the opener protocol."
   pairingHint="No coordinator nearby? Hold BOOT 3s to open pairing, 10s+ to factory reset. Same actions as the buttons above."

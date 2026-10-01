@@ -14,6 +14,7 @@
     pendingCommands,
   } from 'src/app/lib/door.svelte.js'
   import { doorMeta, isSettled } from 'src/app/lib/garage.js'
+  import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { Badge } from '$lib/components/ui/badge'
@@ -31,16 +32,28 @@
   } from 'lucide-svelte'
 
   let unsub = $state(null)
+  let leftOpenUnsubs = $state([])
+  let leftOpen = $state({ enabled: false, warn_s: 0, close_s: 0 })
 
   onMount(() => {
     unsub = initializeGarage()
+    const u1 = onMessageType('left_open_config', (data) => {
+      leftOpen.enabled = !!data.enabled
+      leftOpen.warn_s = data.warn_s || 0
+      leftOpen.close_s = data.close_s || 0
+    })
+    const u2 = onMessageType('door_event', () => sendMessage({ type: 'get_left_open' }))
+    leftOpenUnsubs = [u1, u2]
+    sendMessage({ type: 'get_left_open' })
     return () => {
       if (unsub) unsub()
+      leftOpenUnsubs.forEach((u) => u())
     }
   })
 
   onDestroy(() => {
     if (unsub) unsub()
+    leftOpenUnsubs.forEach((u) => u())
   })
 
   const meta = $derived(doorMeta(garageState.door))
@@ -130,6 +143,14 @@
         >
       </div>
       <p class="mt-2 text-sm text-muted-foreground">{statusDetail}</p>
+      {#if leftOpen.enabled && garageState.door === 'open'}
+        <p class="mt-1 text-sm text-amber-600 dark:text-amber-400">
+          ⏱ Left-open watch is on{#if leftOpen.warn_s}
+            — warns after {Math.round(leftOpen.warn_s / 60)} min{/if}{#if leftOpen.close_s},
+            auto-closes after {Math.round(leftOpen.close_s / 60)} min{/if}. Tune it in Device
+          Settings.
+        </p>
+      {/if}
 
       <div class="mt-6 flex flex-wrap gap-3">
         {#if !moving && garageState.door === 'stopped'}
