@@ -195,94 +195,96 @@
           />
         </div>
 
-        <div class="flex items-center justify-between rounded-lg border p-3">
-          <div class="space-y-0.5">
-            <Label class="font-medium">Scan channel</Label>
-            <p class="text-xs text-muted-foreground">
-              Pinned channel scans faster and reaches farther on a weak link; Auto scans all 16.
-              {#if zigbeeState.config.joined}
-                Leave the network to change it.
-              {/if}
-            </p>
-          </div>
-          <span
-            title={zigbeeState.config.joined
-              ? 'Leave the network to change the scan channel'
-              : undefined}
-          >
-            <Select
-              type="single"
-              value={`${zigbeeState.config.channel_cfg}`}
-              onValueChange={handleChannelChange}
-              disabled={zigBusy || zigbeeState.config.joined}
+        <Card.Enabled enabled={zigbeeState.config.enabled}>
+          <div class="flex items-center justify-between rounded-lg border p-3">
+            <div class="space-y-0.5">
+              <Label class="font-medium">Scan channel</Label>
+              <p class="text-xs text-muted-foreground">
+                Pinned channel scans faster and reaches farther on a weak link; Auto scans all 16.
+                {#if zigbeeState.config.joined}
+                  Leave the network to change it.
+                {/if}
+              </p>
+            </div>
+            <span
+              title={zigbeeState.config.joined
+                ? 'Leave the network to change the scan channel'
+                : undefined}
             >
-              <SelectTrigger class="w-44" aria-label="Scan channel">
-                {zigbeeChannelLabel(zigbeeState.config.channel_cfg)}
-              </SelectTrigger>
-              <SelectContent>
-                {#each ZIGBEE_CHANNEL_OPTIONS as ch}
-                  <SelectItem value={`${ch}`}>{zigbeeChannelLabel(ch)}</SelectItem>
-                {/each}
-              </SelectContent>
-            </Select>
-          </span>
-        </div>
-
-        {#if zigbeeState.config.pairing_remaining_s > 0}
-          <div
-            class="flex items-center gap-3 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-900 dark:bg-sky-950 p-4"
-          >
-            <Info class="size-5 shrink-0 text-sky-600 dark:text-sky-400" />
-            <p class="text-sm text-sky-700 dark:text-sky-300">
-              Pairing is open — put your coordinator (ZHA / Zigbee2MQTT) in permit-join now.
-            </p>
+              <Select
+                type="single"
+                value={`${zigbeeState.config.channel_cfg}`}
+                onValueChange={handleChannelChange}
+                disabled={zigBusy || zigbeeState.config.joined}
+              >
+                <SelectTrigger class="w-44" aria-label="Scan channel">
+                  {zigbeeChannelLabel(zigbeeState.config.channel_cfg)}
+                </SelectTrigger>
+                <SelectContent>
+                  {#each ZIGBEE_CHANNEL_OPTIONS as ch}
+                    <SelectItem value={`${ch}`}>{zigbeeChannelLabel(ch)}</SelectItem>
+                  {/each}
+                </SelectContent>
+              </Select>
+            </span>
           </div>
-        {/if}
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <LoadingButton
-            onclick={pairZigbee}
-            disabled={zigBusy ||
-              !zigbeeState.config.enabled ||
-              zigbeeState.config.joined ||
-              zigbeeState.config.commissioned}
-            loading={zigBusy}
-            loadingLabel="Working…"
-            icon={Link}
-          >
-            {#if zigbeeState.config.pairing_remaining_s > 0}
-              Pairing ({zigbeeState.config.pairing_remaining_s}s)
-            {:else}
-              Pair (60s)
-            {/if}
-          </LoadingButton>
-          <LoadingButton
-            variant="outline"
-            onclick={leaveZigbee}
-            disabled={zigBusy || !(zigbeeState.config.joined || zigbeeState.config.commissioned)}
-            loading={zigBusy}
-            loadingLabel="Working…"
-            icon={LogOut}
-          >
-            Leave network
-          </LoadingButton>
-          <LoadingButton
-            variant="destructive"
-            onclick={confirmReset}
-            disabled={zigBusy}
-            loading={zigBusy}
-            loadingLabel="Working…"
-            icon={Trash2}
-          >
-            Factory reset
-          </LoadingButton>
-        </div>
+          {#if zigbeeState.config.pairing_remaining_s > 0}
+            <div
+              class="flex items-center gap-3 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-900 dark:bg-sky-950 p-4"
+            >
+              <Info class="size-5 shrink-0 text-sky-600 dark:text-sky-400" />
+              <p class="text-sm text-sky-700 dark:text-sky-300">
+                Pairing is open — put your coordinator (ZHA / Zigbee2MQTT) in permit-join now.
+              </p>
+            </div>
+          {/if}
 
-        {#if pairingHint}
-          <p class="text-xs text-muted-foreground leading-snug">
-            {pairingHint}
-          </p>
-        {/if}
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <LoadingButton
+              onclick={pairZigbee}
+              disabled={zigBusy ||
+                !zigbeeState.config.enabled ||
+                zigbeeState.config.joined ||
+                zigbeeState.config.commissioned}
+              loading={zigBusy}
+              loadingLabel="Working…"
+              icon={Link}
+            >
+              {#if zigbeeState.config.pairing_remaining_s > 0}
+                Pairing ({zigbeeState.config.pairing_remaining_s}s)
+              {:else}
+                Pair (60s)
+              {/if}
+            </LoadingButton>
+            <LoadingButton
+              variant="outline"
+              onclick={leaveZigbee}
+              disabled={zigBusy || !(zigbeeState.config.joined || zigbeeState.config.commissioned)}
+              loading={zigBusy}
+              loadingLabel="Working…"
+              icon={LogOut}
+            >
+              Leave network
+            </LoadingButton>
+            <LoadingButton
+              variant="destructive"
+              onclick={confirmReset}
+              disabled={zigBusy}
+              loading={zigBusy}
+              loadingLabel="Working…"
+              icon={Trash2}
+            >
+              Factory reset
+            </LoadingButton>
+          </div>
+
+          {#if pairingHint}
+            <p class="text-xs text-muted-foreground leading-snug">
+              {pairingHint}
+            </p>
+          {/if}
+        </Card.Enabled>
       {/if}
     </Card.Content>
   </Card.Root>

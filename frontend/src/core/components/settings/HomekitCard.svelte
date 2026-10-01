@@ -149,32 +149,36 @@
         />
       </div>
     {/if}
-    {#if !hkLoading && homekitState.config.enabled}
-      {#if homekitState.config.paired}
-        <p class="text-sm text-muted-foreground">
-          Paired with Apple Home. The setup code is hidden while paired.
-        </p>
-      {:else if hkQr}
-        <div class="flex items-start gap-4">
-          <HomekitSetupLabel setupUri={homekitState.config.setup_uri} qrSrc={hkQr} />
-          <div class="space-y-2 pt-1">
-            <p class="text-sm text-muted-foreground">
-              Scan with the Home app, or enter the code manually.
-            </p>
-            {#if hkCodeDisplay}
-              <code class="text-sm tracking-widest">{hkCodeDisplay}</code>
-            {/if}
+    {#if !hkLoading}
+      <Card.Enabled enabled={homekitState.config.enabled}>
+        {#if homekitState.config.paired}
+          <p class="text-sm text-muted-foreground">
+            Paired with Apple Home. The setup code is hidden while paired.
+          </p>
+        {:else if hkQr}
+          <div class="flex items-start gap-4">
+            <HomekitSetupLabel setupUri={homekitState.config.setup_uri} qrSrc={hkQr} />
+            <div class="space-y-2 pt-1">
+              <p class="text-sm text-muted-foreground">
+                Scan with the Home app, or enter the code manually.
+              </p>
+              {#if hkCodeDisplay}
+                <code class="text-sm tracking-widest">{hkCodeDisplay}</code>
+              {/if}
+            </div>
           </div>
-        </div>
-      {:else}
-        <p class="text-sm text-muted-foreground">
-          {#if homekitState.config.started}
-            Waiting for the setup code…
-          {:else}
-            HomeKit is still starting — this refreshes automatically.
-          {/if}
-        </p>
-      {/if}
+        {:else}
+          <p class="text-sm text-muted-foreground">
+            {#if !homekitState.config.enabled}
+              Turn on above to start pairing.
+            {:else if homekitState.config.started}
+              Waiting for the setup code…
+            {:else}
+              HomeKit is still starting — this refreshes automatically.
+            {/if}
+          </p>
+        {/if}
+      </Card.Enabled>
     {/if}
   </Card.Content>
 </Card.Root>

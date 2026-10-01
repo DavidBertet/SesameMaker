@@ -156,29 +156,31 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="space-y-2">
-          <Label for="mqtt-uri">Broker URI</Label>
-          <Input id="mqtt-uri" bind:value={form.uri} placeholder="mqtt://192.168.1.50:1883" />
+      <Card.Enabled enabled={form.mode !== 'off'}>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="space-y-2">
+            <Label for="mqtt-uri">Broker URI</Label>
+            <Input id="mqtt-uri" bind:value={form.uri} placeholder="mqtt://192.168.1.50:1883" />
+          </div>
+          <div class="space-y-2">
+            <Label for="mqtt-prefix">Topic prefix</Label>
+            <Input id="mqtt-prefix" bind:value={form.topic_prefix} placeholder="home/device" />
+          </div>
+          <div class="space-y-2">
+            <Label for="mqtt-user">Username</Label>
+            <Input id="mqtt-user" bind:value={form.username} placeholder="Optional" />
+          </div>
+          <div class="space-y-2">
+            <Label for="mqtt-pass">Password</Label>
+            <Input
+              id="mqtt-pass"
+              type="password"
+              bind:value={form.password}
+              placeholder={mqttState.config.password_set ? 'Set (leave as-is to keep)' : 'Optional'}
+            />
+          </div>
         </div>
-        <div class="space-y-2">
-          <Label for="mqtt-prefix">Topic prefix</Label>
-          <Input id="mqtt-prefix" bind:value={form.topic_prefix} placeholder="home/device" />
-        </div>
-        <div class="space-y-2">
-          <Label for="mqtt-user">Username</Label>
-          <Input id="mqtt-user" bind:value={form.username} placeholder="Optional" />
-        </div>
-        <div class="space-y-2">
-          <Label for="mqtt-pass">Password</Label>
-          <Input
-            id="mqtt-pass"
-            type="password"
-            bind:value={form.password}
-            placeholder={mqttState.config.password_set ? 'Set (leave as-is to keep)' : 'Optional'}
-          />
-        </div>
-      </div>
+      </Card.Enabled>
 
       <LoadingButton
         class="w-full"

@@ -126,9 +126,9 @@
       </div>
       {#if !loading}
         {#if form.enabled}
-          <Badge variant="secondary">On</Badge>
+          <Badge variant="secondary">Enabled</Badge>
         {:else}
-          <Badge variant="outline">Off</Badge>
+          <Badge variant="outline">Disabled</Badge>
         {/if}
       {/if}
     </div>
@@ -154,45 +154,53 @@
         />
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="space-y-2">
-          <Label for="leftopen-warn">Warn after (minutes, 0 = never)</Label>
-          <Input id="leftopen-warn" type="number" min="0" max="1440" bind:value={form.warn_min} />
+      <Card.Enabled enabled={form.enabled}>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="space-y-2">
+            <Label for="leftopen-warn">Warn after (minutes, 0 = never)</Label>
+            <Input id="leftopen-warn" type="number" min="0" max="1440" bind:value={form.warn_min} />
+          </div>
+          <div class="space-y-2">
+            <Label for="leftopen-close">Auto-close after (minutes, 0 = never)</Label>
+            <Input
+              id="leftopen-close"
+              type="number"
+              min="0"
+              max="1440"
+              bind:value={form.close_min}
+            />
+          </div>
         </div>
+
         <div class="space-y-2">
-          <Label for="leftopen-close">Auto-close after (minutes, 0 = never)</Label>
-          <Input id="leftopen-close" type="number" min="0" max="1440" bind:value={form.close_min} />
-        </div>
-      </div>
-
-      <div class="space-y-2">
-        <Label for="leftopen-webhook"
-          >Webhook URL {webhookRequired ? '(required)' : '(optional)'}</Label
-        >
-        <Input
-          id="leftopen-webhook"
-          bind:value={form.webhook}
-          placeholder="https://ntfy.sh/my-topic"
-        />
-        <p class="text-xs text-muted-foreground">
-          Notifications only go here (e.g. ntfy topic + phone app).
-        </p>
-      </div>
-
-      <div class="flex items-center justify-between rounded-lg border p-3">
-        <div class="space-y-0.5">
-          <Label class="font-medium">Flash opener light before auto-close</Label>
+          <Label for="leftopen-webhook"
+            >Webhook URL {webhookRequired ? '(required)' : '(optional)'}</Label
+          >
+          <Input
+            id="leftopen-webhook"
+            bind:value={form.webhook}
+            placeholder="https://ntfy.sh/my-topic"
+          />
           <p class="text-xs text-muted-foreground">
-            Blinks for 10s so anyone around is warned. Security+ 1.0 / 2.0 only.
+            Notifications only go here (e.g. ntfy topic + phone app).
           </p>
         </div>
-        <Switch
-          checked={form.blink}
-          onCheckedChange={(v) => (form.blink = v)}
-          disabled={Number(form.close_min) <= 0}
-          aria-label="Flash light before auto-close"
-        />
-      </div>
+
+        <div class="flex items-center justify-between rounded-lg border p-3">
+          <div class="space-y-0.5">
+            <Label class="font-medium">Flash opener light before auto-close</Label>
+            <p class="text-xs text-muted-foreground">
+              Blinks for 10s so anyone around is warned. Security+ 1.0 / 2.0 only.
+            </p>
+          </div>
+          <Switch
+            checked={form.blink}
+            onCheckedChange={(v) => (form.blink = v)}
+            disabled={Number(form.close_min) <= 0}
+            aria-label="Flash light before auto-close"
+          />
+        </div></Card.Enabled
+      >
 
       <LoadingButton
         class="w-full"
