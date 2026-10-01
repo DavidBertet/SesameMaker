@@ -18,6 +18,9 @@ cc -std=c11 -Wall -Wextra -o /tmp/test_protocol \
 cc -std=c11 -Wall -Wextra -o /tmp/test_drycontact \
     test_drycontact.c ../src/app/drycontact.c
 /tmp/test_drycontact
+cc -std=c11 -Wall -Wextra -o /tmp/test_left_open \
+    test_left_open.c ../src/app/left_open.c
+/tmp/test_left_open
 cc -std=c11 -Wall -Wextra -o /tmp/test_zigbee \
     test_zigbee.c
 /tmp/test_zigbee

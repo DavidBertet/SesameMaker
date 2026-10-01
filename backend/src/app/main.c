@@ -28,6 +28,7 @@
 #include "ws_garage.h"
 #include "ws_pins.h"
 #include "ws_protocol.h"
+#include "ws_left_open.h"
 #include "ws_log.h"
 
 #include "garage_controller.h"
@@ -146,6 +147,8 @@ void app_main()
 
   register_callback("get_protocol", ws_handle_get_protocol);
   register_callback("set_protocol", ws_handle_set_protocol);
+  register_callback("get_left_open", ws_handle_get_left_open);
+  register_callback("set_left_open", ws_handle_set_left_open);
 
   // Live pin inspector: app declares the table, core samples + formats.
   app_pins_register();
@@ -174,6 +177,9 @@ void app_main()
 
   // Start the garage door controller
   ESP_ERROR_CHECK(garage_controller_start());
+
+  // Left-open escalation watchdog (own task; inert until enabled).
+  left_open_start();
 
   // MQTT bridge (subscribes to {prefix}/set, publishes {prefix}/state).
   // Garage content registers first so (re)connects pick it up.
