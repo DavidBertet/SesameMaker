@@ -194,6 +194,7 @@ export function generateMockResponse(data) {
           enabled: mockLeftOpen.enabled,
           warn_s: mockLeftOpen.warn_s,
           close_s: mockLeftOpen.close_s,
+          blink_light: mockLeftOpen.blink_light,
           webhook: mockLeftOpen.webhook,
           open: false,
           elapsed_s: 0,
@@ -204,6 +205,7 @@ export function generateMockResponse(data) {
       mockLeftOpen.enabled = !!data.enabled
       mockLeftOpen.warn_s = data.warn_s || 0
       mockLeftOpen.close_s = data.close_s || 0
+      mockLeftOpen.blink_light = !!data.blink_light
       mockLeftOpen.webhook = data.webhook || ''
       return [
         { type: 'left_open_saved', success: true },
@@ -212,6 +214,7 @@ export function generateMockResponse(data) {
           enabled: mockLeftOpen.enabled,
           warn_s: mockLeftOpen.warn_s,
           close_s: mockLeftOpen.close_s,
+          blink_light: mockLeftOpen.blink_light,
           webhook: mockLeftOpen.webhook,
           open: false,
           elapsed_s: 0,
@@ -559,6 +562,7 @@ let mockLeftOpen = {
   enabled: false,
   warn_s: 600,
   close_s: 0,
+  blink_light: false,
   webhook: '',
 }
 

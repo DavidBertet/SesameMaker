@@ -21,12 +21,11 @@
   let unsubs = $state([])
   let ticker = $state(null)
 
-  let form = $state({ enabled: false, warn_min: 10, close_min: 0, webhook: '' })
+  let form = $state({ enabled: false, warn_min: 10, close_min: 0, blink: false, webhook: '' })
   // Webhook is the warning channel: required with warn armed (backend
   // rejects warn-without-webhook saves). Auto-close alone stays optional.
   // Disabled while warn is off — there is nothing to warn about.
   const webhookRequired = $derived(form.enabled && Number(form.warn_min) > 0)
-  const webhookDisabled = $derived(Number(form.warn_min) <= 0)
   let live = $state({ open: false, elapsed_s: 0 })
 
   function fmtElapsed(total) {
@@ -40,6 +39,7 @@
     form.enabled = !!data.enabled
     form.warn_min = Math.round((data.warn_s || 0) / 60)
     form.close_min = Math.round((data.close_s || 0) / 60)
+    form.blink = !!data.blink_light
     form.webhook = data.webhook || ''
     live.open = !!data.open
     live.elapsed_s = data.elapsed_s || 0
@@ -73,6 +73,7 @@
       enabled: form.enabled,
       warn_s,
       close_s,
+      blink_light: form.blink,
       webhook,
     })
   }
@@ -171,12 +172,26 @@
         <Input
           id="leftopen-webhook"
           bind:value={form.webhook}
-          disabled={webhookDisabled}
           placeholder="https://ntfy.sh/my-topic"
         />
         <p class="text-xs text-muted-foreground">
-          Warnings only go here (e.g. ntfy topic + phone app).
+          Notifications only go here (e.g. ntfy topic + phone app).
         </p>
+      </div>
+
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div class="space-y-0.5">
+          <Label class="font-medium">Flash opener light before auto-close</Label>
+          <p class="text-xs text-muted-foreground">
+            Blinks for 10s so anyone around is warned. Security+ 1.0 / 2.0 only.
+          </p>
+        </div>
+        <Switch
+          checked={form.blink}
+          onCheckedChange={(v) => (form.blink = v)}
+          disabled={Number(form.close_min) <= 0}
+          aria-label="Flash light before auto-close"
+        />
       </div>
 
       <LoadingButton
