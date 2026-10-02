@@ -11,14 +11,17 @@ static const char *TAG = "STORAGE";
 
 // Long term storage that survives restart
 
-// Erase + reinit a named NVS partition when it is full or corrupt.
+// Erase + reinit NVS when init fails for any reason: full store, version
+// bump, or foreign garbage from a previous non-SesameMaker firmware. Single
+// attempt, never loops: a dead flash still surfaces as an error.
 // Never aborts: logs and returns the error so boot can continue degraded
 // instead of panic-looping on bad flash.
 static esp_err_t init_nvs(const char *label)
 {
   esp_err_t ret = nvs_flash_init_partition(label);
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+  if (ret != ESP_OK)
   {
+    ESP_LOGW(TAG, "%s init failed (%s), erasing once", label, esp_err_to_name(ret));
     esp_err_t erase = nvs_flash_erase_partition(label);
     if (erase != ESP_OK)
     {
@@ -37,8 +40,9 @@ static esp_err_t init_nvs(const char *label)
 esp_err_t setup_storage(void)
 {
   esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+  if (ret != ESP_OK)
   {
+    ESP_LOGW(TAG, "nvs init failed (%s), erasing once", esp_err_to_name(ret));
     esp_err_t erase = nvs_flash_erase();
     if (erase != ESP_OK)
     {
