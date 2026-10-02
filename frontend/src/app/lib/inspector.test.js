@@ -131,12 +131,16 @@ test('doorSummary builds name/value rows from store lookalikes', () => {
     sensors: { valid: true, open: false, close: true },
   }
   const rows = Object.fromEntries(
-    doorSummary(garage, { loaded: true, id: 'secplus1' }, {
-      relay_gpio: 4,
-      open_gpio: 5,
-      close_gpio: 6,
-      sensor_mode: 'both',
-    }),
+    doorSummary(
+      garage,
+      { loaded: true, id: 'secplus1' },
+      {
+        relay_gpio: 4,
+        open_gpio: 5,
+        close_gpio: 6,
+        sensor_mode: 'both',
+      },
+    ),
   )
   assert.equal(rows.Protocol, 'secplus1')
   assert.equal(rows.Door, 'closed')
