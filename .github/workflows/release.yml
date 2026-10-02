@@ -32,6 +32,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Tag push (or manual dispatch) triggers; the environment's required
+    # reviewers approve before anything signs. The OTA key only exists here.
+    environment: release
     strategy:
       matrix:
         include:
