@@ -184,14 +184,13 @@ test('parseHwidIdentity extracts VID/PID/SER/LOCATION', () => {
 test('dedupeUsbDevices keeps distinct Linux ports and exact duplicates collapse', () => {
   const d = loadDiscover()
   assert.deepEqual(
-    d
-      .dedupeUsbDevices([{ port: '/dev/ttyUSB0' }, { port: '/dev/ttyACM0' }])
-      .map((x) => x.port),
+    d.dedupeUsbDevices([{ port: '/dev/ttyUSB0' }, { port: '/dev/ttyACM0' }]).map((x) => x.port),
     ['/dev/ttyUSB0', '/dev/ttyACM0'],
   )
-  assert.deepEqual(d.dedupeUsbDevices([{ port: 'COM3' }, { port: 'COM3' }]).map((x) => x.port), [
-    'COM3',
-  ])
+  assert.deepEqual(
+    d.dedupeUsbDevices([{ port: 'COM3' }, { port: 'COM3' }]).map((x) => x.port),
+    ['COM3'],
+  )
 })
 
 test('discoverUsbDevices dedupes cu/tty pairs from pio output', async () => {

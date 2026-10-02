@@ -20,6 +20,7 @@
 #include "ezbee/zcl/zcl_type.h"
 #endif
 
+#ifdef CONFIG_SOC_IEEE802154_SUPPORTED
 static const char *TAG = "ZIGBEE_GARAGE";
 
 // One endpoint per function so hubs map each to the right entity, all as
@@ -135,3 +136,7 @@ void zigbee_garage_register(void)
   };
   zigbee_register_device(&dev);
 }
+#else
+// No 802.15.4 radio: nothing to register (mirrors zigbee.c stubs).
+void zigbee_garage_register(void) {}
+#endif

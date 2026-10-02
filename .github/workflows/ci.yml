@@ -1,5 +1,7 @@
 # CI proof per push: validate only, never deploys or publishes.
 # Runs on main pushes and PRs. Releases (tags) run release.yml + deploy-page.yml.
+# Firmware matrix lives in ci-firmware.yml (backend changes only) — three
+# ESP-IDF builds on every commit is too expensive for a lint gate.
 
 name: CI
 
@@ -42,38 +44,3 @@ jobs:
         run: |
           pip install cryptography
           python3 tools/sign_manifest.test.py
-
-  firmware:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        env: [sesame-c6, sesame-c3, sesame-s3]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Cache PlatformIO
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.platformio
-            ~/.cache/pip
-          key: ${{ runner.os }}-pio-${{ hashFiles('backend/platformio.ini') }}
-
-      - name: Install PlatformIO
-        run: pip install platformio
-
-      - name: Firmware version
-        run: |
-          echo "FW_VERSION=$(git describe --tags --always --dirty)" >> $GITHUB_ENV
-          echo "FW_GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Build firmware (${{ matrix.env }})
-        run: pio run -e ${{ matrix.env }}
-        working-directory: ./backend
