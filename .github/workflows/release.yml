@@ -156,7 +156,9 @@ jobs:
               with open(name, "rb") as f:
                   for chunk in iter(lambda: f.read(65536), b""):
                       h.update(chunk)
-              return {"name": name, "offset": offset, "size": os.path.getsize(name),
+              # Canonical hex string: the browser parser accepts decimal too
+              # (shipped manifests), but hex is the contract going forward.
+              return {"name": name, "offset": "0x%x" % int(str(offset), 0), "size": os.path.getsize(name),
                       "sha256": h.hexdigest()}
           manifest = {
               "version": os.environ["GITHUB_REF_NAME"],
