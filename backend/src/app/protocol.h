@@ -23,7 +23,7 @@ typedef enum
 {
     PROTOCOL_SECPLUS1 = 0,   // 1200 baud 8E1 wall bus, full bus feedback
     PROTOCOL_DRYCONTACT = 1, // relay pulse + 0/1/2 reed limit sensors
-    PROTOCOL_SECPLUS2 = 2,   // stub: not implemented yet
+    PROTOCOL_SECPLUS2 = 2,   // 9600 8N1 wall bus, wall-device emulation
 } protocol_id_t;
 
 #define PROTOCOL_COUNT 3
