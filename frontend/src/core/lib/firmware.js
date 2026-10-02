@@ -67,15 +67,28 @@ async function downloadBytes(url, fetchFn) {
 // Burn files ([{name, address, data}]) to a WebSerial port. Resolves the
 // detected chip name. Progress: onProgress({file, written, total}).
 // eraseAll wipes the whole flash first (fresh start, settings lost).
-export async function flashDevice({
+// Flashing starts fast with compression and automatically falls back to
+// slower baudrates (finally slow + uncompressed): marginal USB-UART
+// bridges and cables routinely fail the 921600/compressed path with ROM
+// errors like "enter compressed flash mode ... status 196,0".
+// A fresh Transport per attempt: a failed baudrate switch can leave the
+// line in a bad state. Explicit baudrate/compress mean a single attempt.
+const FLASH_ATTEMPTS = [
+  { baudrate: 921600, compress: true },
+  { baudrate: 460800, compress: true },
+  { baudrate: 115200, compress: false },
+]
+
+async function burnOnce({
   port,
   files,
-  expectedChip = null,
-  eraseAll = false,
-  baudrate = 921600,
-  onProgress = () => {},
-  esptool = null,
-} = {}) {
+  expectedChip,
+  eraseAll,
+  baudrate,
+  compress,
+  onProgress,
+  esptool,
+}) {
   const { Transport, ESPLoader } = esptool || (await import('esptool-js'))
   const transport = new Transport(port, true)
   const quiet = { clean() {}, write() {}, writeLine() {} }
@@ -94,7 +107,7 @@ export async function flashDevice({
       flashFreq: '80m',
       flashSize: 'keep',
       eraseAll: false,
-      compress: true,
+      compress,
       reportProgress: (fileIndex, written, total) =>
         onProgress({ file: files[fileIndex].name, written, total }),
     })
@@ -107,6 +120,40 @@ export async function flashDevice({
   } finally {
     await transport.disconnect()
   }
+}
+
+export async function flashDevice({
+  port,
+  files,
+  expectedChip = null,
+  eraseAll = false,
+  baudrate = null,
+  compress = true,
+  attempts = FLASH_ATTEMPTS,
+  onProgress = () => {},
+  esptool = null,
+} = {}) {
+  const plan = baudrate != null ? [{ baudrate, compress }] : attempts
+  let lastError = null
+  for (const attempt of plan) {
+    try {
+      return await burnOnce({
+        port,
+        files,
+        expectedChip,
+        eraseAll,
+        baudrate: attempt.baudrate,
+        compress: attempt.compress ?? true,
+        onProgress,
+        esptool,
+      })
+    } catch (e) {
+      lastError = e
+    }
+  }
+  throw new Error(`Flash failed (${plan.length} attempts, last: ${lastError.message})`, {
+    cause: lastError,
+  })
 }
 
 // Full install for one release tag: manifest + images from the same-origin

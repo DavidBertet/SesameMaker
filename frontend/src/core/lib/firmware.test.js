@@ -7,6 +7,7 @@ import {
   pickLatestRelease,
   firmwareFileBase,
   parseManifest,
+  flashDevice,
   installRelease,
 } from './firmware.js'
 
@@ -58,6 +59,83 @@ test('firmwareFileBase points at the same-origin fw bundle', () => {
   assert.equal(firmwareFileBase('v1.0.0', '/SesameMaker/'), '/SesameMaker/fw/v1.0.0')
   assert.equal(firmwareFileBase('v1.0.0', '/SesameMaker'), '/SesameMaker/fw/v1.0.0')
   assert.equal(firmwareFileBase('v1.0.0'), '/fw/v1.0.0')
+})
+
+test('flashDevice falls back to slower baud, then uncompressed', async () => {
+  const seenBaud = []
+  const seenCompress = []
+  let calls = 0
+  const esptool = {
+    Transport: class {
+      disconnect() {}
+    },
+    ESPLoader: class {
+      constructor({ baudrate }) {
+        seenBaud.push(baudrate)
+      }
+      async main() {
+        return 'ESP32-C6'
+      }
+      async writeFlash({ compress }) {
+        seenCompress.push(compress)
+        calls += 1
+        if (calls === 1)
+          throw new Error('Failed to enter compressed flash mode failed with status 196,0')
+      }
+      async hardReset() {}
+    },
+  }
+  const chip = await flashDevice({ port: {}, files: [], esptool })
+  assert.equal(chip, 'ESP32-C6')
+  assert.deepEqual(seenBaud, [921600, 460800])
+  assert.deepEqual(seenCompress, [true, true])
+})
+
+test('flashDevice last resort is slow and uncompressed, then gives up loudly', async () => {
+  const esptool = {
+    Transport: class {
+      disconnect() {}
+    },
+    ESPLoader: class {
+      async main() {
+        return 'ESP32-C6'
+      }
+      async writeFlash() {
+        throw new Error('boom')
+      }
+      async hardReset() {}
+    },
+  }
+  await assert.rejects(
+    flashDevice({ port: {}, files: [], esptool }),
+    /Flash failed \(3 attempts, last: boom\)/,
+  )
+})
+
+test('flashDevice with explicit baudrate tries once', async () => {
+  let transports = 0
+  const esptool = {
+    Transport: class {
+      constructor() {
+        transports += 1
+      }
+      disconnect() {}
+    },
+    ESPLoader: class {
+      async main() {
+        return 'ESP32-C6'
+      }
+      async writeFlash() {
+        throw new Error('boom')
+      }
+      async hardReset() {}
+    },
+  }
+  await assert.rejects(
+    flashDevice({ port: {}, files: [], baudrate: 115200, esptool }),
+    /1 attempts/,
+  )
+  assert.equal(transports, 1)
 })
 
 test('installRelease downloads manifest+images same-origin, then burns', async () => {
