@@ -39,8 +39,13 @@ export function firmwareFileBase(tag, siteBase = '/') {
 }
 
 // Manifest shape from the release workflow:
-// {version, chip, files: [{name, offset ("0x..."), size, sha256}]}.
-// Throws on anything unexpected — never flash a half-understood layout.
+// {version, chip, files: [{name, offset, size, sha256}]}.
+// Offset is "0x..." hex going forward, but shipped manifests carry decimal
+// ("3653632" = 0x37C000) — accept both. Anything above 32MB is a format
+// mixup, not a flash chip: fail fast here instead of a cryptic ROM status
+// after writing the earlier files.
+const MAX_FLASH_ADDRESS = 0x2000000
+
 export function parseManifest(raw, { expectedChip = null } = {}) {
   const files = raw && raw.files
   if (!raw || typeof raw !== 'object' || !Array.isArray(files) || files.length === 0) {
@@ -50,8 +55,11 @@ export function parseManifest(raw, { expectedChip = null } = {}) {
     throw new Error(`Manifest targets ${raw.chip}, expected ${expectedChip}`)
   }
   return files.map((f) => {
-    const address = Number.parseInt(f.offset, 16)
-    if (!f.name || !Number.isInteger(address) || address < 0) {
+    const text = String(f.offset || '')
+      .trim()
+      .toLowerCase()
+    const address = text.startsWith('0x') ? Number.parseInt(text, 16) : Number.parseInt(text, 10)
+    if (!f.name || !Number.isInteger(address) || address < 0 || address > MAX_FLASH_ADDRESS) {
       throw new Error(`Bad manifest entry: ${JSON.stringify(f)}`)
     }
     return { name: f.name, address, size: f.size || 0 }

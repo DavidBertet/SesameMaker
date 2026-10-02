@@ -215,6 +215,36 @@ test('parseManifest validates entries and parses hex offsets', () => {
   ])
 })
 
+test('parseManifest accepts decimal offsets (shipped manifests)', () => {
+  assert.deepEqual(
+    parseManifest(
+      {
+        version: 'v0.0.4',
+        chip: 'ESP32-C6',
+        files: [
+          { name: 'factory.bin', offset: '0x0', size: 1632784 },
+          { name: 'spiffs.bin', offset: '3653632', size: 540672 },
+        ],
+      },
+      { expectedChip: 'ESP32-C6' },
+    ),
+    [
+      { name: 'factory.bin', address: 0x0, size: 1632784 },
+      { name: 'spiffs.bin', address: 0x37c000, size: 540672 },
+    ],
+  )
+})
+
+test('parseManifest rejects absurd addresses instead of bricking the flash', () => {
+  assert.throws(
+    () =>
+      parseManifest({
+        files: [{ name: 'spiffs.bin', offset: '0x3653632', size: 540672 }],
+      }),
+    /Bad manifest/,
+  )
+})
+
 test('parseManifest rejects malformed manifests and chip mismatch', () => {
   assert.throws(() => parseManifest(null), /malformed/)
   assert.throws(() => parseManifest({ files: [] }), /malformed/)
