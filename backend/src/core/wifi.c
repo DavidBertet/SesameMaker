@@ -285,9 +285,18 @@ static void on_sta_start(void *event_data)
     (void)event_data;
     ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
     // Stored STA credentials (if any) live in NVS; connect with whatever is
-    // there. Provisioning (portal, USB, console) configures then connects
-    // through wifi_start_sta_connection instead.
-    esp_wifi_connect();
+    // there. An empty store skips the attempt entirely — blind retries with
+    // no SSID only delay the AP fallback. Provisioning (portal, USB,
+    // console) configures then connects through wifi_start_sta_connection
+    // instead.
+    if (is_wifi_setup())
+    {
+        esp_wifi_connect();
+    }
+    else
+    {
+        ESP_LOGI(TAG, "No stored credentials, skipping auto-connect");
+    }
 }
 
 static void on_sta_disconnected(void *event_data)
@@ -470,8 +479,11 @@ esp_err_t setup_wifi(void)
     }
 
     // Credentials come from NVS (portal, USB or console provisioning) or
-    // nowhere at all: STA_START auto-connects with whatever is stored,
-    // and an empty store simply fails into AP mode below.
+    // nowhere at all. With nothing stored, skip STA entirely and bring the
+    // setup AP up immediately instead of burning retries + a 10 s wait on
+    // an attempt that cannot succeed. Driver still starts (STA netif is
+    // needed later when provisioning connects through
+    // wifi_start_sta_connection).
     // Initialize WiFi
     esp_err_t ret = setup_sta();
     if (ret != ESP_OK)
@@ -479,6 +491,14 @@ esp_err_t setup_wifi(void)
         ESP_LOGE(TAG, "Failed to initialize STA WiFi");
         setup_apsta(); // Fall back to AP mode
         return ret;
+    }
+
+    if (!is_wifi_setup())
+    {
+        ESP_LOGI(TAG, "No stored credentials, starting setup AP directly");
+        setup_apsta();
+        wait_ap_started();
+        return ESP_FAIL;
     }
 
     // If connection fails, we'll get a disconnect event

@@ -118,6 +118,12 @@ void app_main()
   // Setup HTTP server
   setup_server();
 
+  // USB-serial Improv Wi-Fi provisioning (ESP Web Tools + CLI). Needs only
+  // the scheduler, NVS storage and the WiFi driver above — deliberately
+  // started before the controllers/transports so USB setup works ASAP
+  // after boot instead of waiting out Zigbee/HomeKit init.
+  improv_serial_start();
+
   // Init hardware
   ESP_ERROR_CHECK(protocol_registry_init());
   ESP_ERROR_CHECK(garage_controller_init());
@@ -191,10 +197,6 @@ void app_main()
   zigbee_garage_register();
   ESP_ERROR_CHECK(zigbee_init());
   zigbee_button_init();
-
-  // USB-serial Improv Wi-Fi provisioning (ESP Web Tools + CLI). Runs its
-  // own task; needs nothing but the scheduler.
-  improv_serial_start();
 
   // HomeKit accessory. Content registers first so HAP startup picks it up;
   // the task waits for Wi-Fi itself.
