@@ -18,7 +18,12 @@
   import { Download, PackageCheck } from 'lucide-svelte'
   import { toast } from 'svelte-sonner'
 
-  import { listFirmwareReleases, pickLatestRelease, installRelease } from 'src/core/lib/firmware.js'
+  import {
+    listFirmwareReleases,
+    pickLatestRelease,
+    installRelease,
+    firmwareFileBase,
+  } from 'src/core/lib/firmware.js'
 
   let {
     owner,
@@ -76,9 +81,7 @@
     flashProgress = null
     try {
       const { port } = await installRelease({
-        owner,
-        repo,
-        tag: pickedTag,
+        fwBase: firmwareFileBase(pickedTag, import.meta.env.BASE_URL),
         manifestName: pickedVariant.manifestName,
         expectedChip: pickedVariant.expectedChip || null,
         eraseAll,

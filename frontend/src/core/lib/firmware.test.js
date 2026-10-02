@@ -5,7 +5,7 @@ import test from 'node:test'
 import {
   listFirmwareReleases,
   pickLatestRelease,
-  getReleaseByTag,
+  firmwareFileBase,
   parseManifest,
   installRelease,
 } from './firmware.js'
@@ -54,49 +54,24 @@ test('pickLatestRelease prefers stable, falls back, handles empty', () => {
   assert.equal(pickLatestRelease([beta]), beta)
 })
 
-test('getReleaseByTag returns the release JSON, throws with status', async () => {
-  const release = { tag_name: 'v1.0.0', assets: [] }
-  const ok = await getReleaseByTag({
-    owner: 'o',
-    repo: 'r',
-    tag: 'v1.0.0',
-    fetchFn: async () => ({ ok: true, json: async () => release }),
-  })
-  assert.equal(ok, release)
-  await assert.rejects(
-    getReleaseByTag({
-      owner: 'o',
-      repo: 'r',
-      tag: 'nope',
-      fetchFn: async () => ({ ok: false, status: 404 }),
-    }),
-    /No release nope \(HTTP 404\)/,
-  )
+test('firmwareFileBase points at the same-origin fw bundle', () => {
+  assert.equal(firmwareFileBase('v1.0.0', '/SesameMaker/'), '/SesameMaker/fw/v1.0.0')
+  assert.equal(firmwareFileBase('v1.0.0', '/SesameMaker'), '/SesameMaker/fw/v1.0.0')
+  assert.equal(firmwareFileBase('v1.0.0'), '/fw/v1.0.0')
 })
 
-test('installRelease downloads manifest+images via the API asset URLs', async () => {
+test('installRelease downloads manifest+images same-origin, then burns', async () => {
   const seen = []
-  const manifestJson = JSON.stringify(manifest)
-  const bytes = (s) => new TextEncoder().encode(s)
-  const fetchFn = async (url, init) => {
-    seen.push({ url, init })
-    if (url.endsWith('/releases/tags/v1.0.0')) {
-      return {
-        ok: true,
-        json: async () => ({
-          tag_name: 'v1.0.0',
-          assets: [
-            { name: 'manifest.json', url: 'https://api.github.com/asset/1' },
-            { name: 'fw-factory.bin', url: 'https://api.github.com/asset/2' },
-            { name: 'fw-spiffs.bin', url: 'https://api.github.com/asset/3' },
-          ],
-        }),
-      }
+  const bytes = (s) => new TextEncoder().encode(s).buffer
+  const fetchFn = async (url) => {
+    seen.push(url)
+    if (url === 'https://site/fw/v1.0.0/manifest.json') {
+      return { ok: true, json: async () => manifest }
     }
-    if (url === 'https://api.github.com/asset/1') {
-      return { ok: true, arrayBuffer: async () => bytes(manifestJson).buffer }
+    if (url.startsWith('https://site/fw/v1.0.0/fw-')) {
+      return { ok: true, arrayBuffer: async () => bytes(`data:${url}`) }
     }
-    return { ok: true, arrayBuffer: async () => bytes(`data:${url}`).buffer }
+    throw new Error(`unexpected fetch ${url}`)
   }
   let written = null
   const esptool = {
@@ -114,9 +89,7 @@ test('installRelease downloads manifest+images via the API asset URLs', async ()
     },
   }
   const { chip } = await installRelease({
-    owner: 'o',
-    repo: 'r',
-    tag: 'v1.0.0',
+    fwBase: 'https://site/fw/v1.0.0',
     manifestName: 'manifest.json',
     expectedChip: 'ESP32-C6',
     fetchFn,
@@ -124,34 +97,27 @@ test('installRelease downloads manifest+images via the API asset URLs', async ()
     esptool,
   })
   assert.equal(chip, 'ESP32-C6')
-  // every asset fetch asked for octet-stream (the CORS-safe path)
-  for (const { url, init } of seen.slice(1)) {
-    assert.match(url, /^https:\/\/api\.github\.com\//)
-    assert.equal(init.headers.Accept, 'application/octet-stream')
-  }
+  assert.deepEqual(seen, [
+    'https://site/fw/v1.0.0/manifest.json',
+    'https://site/fw/v1.0.0/fw-factory.bin',
+    'https://site/fw/v1.0.0/fw-spiffs.bin',
+  ])
   assert.deepEqual(
     written.map((f) => f.address),
     [0x0, 0x37c000],
   )
 })
 
-test('installRelease throws when a manifest file has no release asset', async () => {
-  const fetchFn = async (url) => {
-    if (url.endsWith('/releases/tags/v1.0.0')) {
-      return { ok: true, json: async () => ({ tag_name: 'v1.0.0', assets: [] }) }
-    }
-    throw new Error(`unexpected fetch ${url}`)
-  }
+test('installRelease throws when the version has no fw bundle', async () => {
+  const fetchFn = async () => ({ ok: false, status: 404 })
   await assert.rejects(
     installRelease({
-      owner: 'o',
-      repo: 'r',
-      tag: 'v1.0.0',
+      fwBase: 'https://site/fw/v9.9.9',
       manifestName: 'manifest.json',
       fetchFn,
       requestPort: async () => ({}),
     }),
-    /no file named manifest\.json/,
+    /No install files for this version \(HTTP 404\)/,
   )
 })
 

@@ -28,20 +28,14 @@ export function pickLatestRelease(releases) {
   return releases.find((r) => !r.prerelease) || releases[0]
 }
 
-// Release assets must go through api.github.com: github.com download URLs
-// send no CORS headers, so browser fetches from them are always blocked.
-// The API serves asset bytes with Access-Control-Allow-Origin: * when asked
-// for application/octet-stream.
-export async function getReleaseByTag({ owner, repo, tag, fetchFn = fetch }) {
-  const res = await fetchFn(`${GITHUB_API}/repos/${owner}/${repo}/releases/tags/${tag}`)
-  if (!res.ok) throw new Error(`No release ${tag} (HTTP ${res.status})`)
-  return res.json()
-}
-
-function findAsset(release, name) {
-  const asset = (release.assets || []).find((a) => a.name === name)
-  if (!asset) throw new Error(`Release has no file named ${name}`)
-  return asset
+// Same-origin firmware base: flash files are bundled into our Pages site at
+// fw/<tag>/ (see release workflow). github.com and api.github.com asset
+// downloads send no CORS headers, so the browser can only fetch flash files
+// from our own origin. siteBase is import.meta.env.BASE_URL at the call site
+// (/SesameMaker/ on Pages, / locally — local dev has no fw bundle).
+export function firmwareFileBase(tag, siteBase = '/') {
+  const root = siteBase.endsWith('/') ? siteBase : `${siteBase}/`
+  return `${root}fw/${tag}`
 }
 
 // Manifest shape from the release workflow:
@@ -64,9 +58,9 @@ export function parseManifest(raw, { expectedChip = null } = {}) {
   })
 }
 
-async function downloadAssetBytes(asset, fetchFn) {
-  const res = await fetchFn(asset.url, { headers: { Accept: 'application/octet-stream' } })
-  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status}): ${asset.name}`)
+async function downloadBytes(url, fetchFn) {
+  const res = await fetchFn(url)
+  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status}): ${url}`)
   return new Uint8Array(await res.arrayBuffer())
 }
 
@@ -115,12 +109,11 @@ export async function flashDevice({
   }
 }
 
-// Full install for one release tag: manifest + images, then burn.
-// onProgress gets {phase: 'download'|'flash', ...}.
+// Full install for one release tag: manifest + images from the same-origin
+// fw bundle, then burn. fwBase comes from firmwareFileBase (picked tag +
+// site base). onProgress gets {phase: 'download'|'flash', ...}.
 export async function installRelease({
-  owner,
-  repo,
-  tag,
+  fwBase,
   manifestName,
   expectedChip = null,
   eraseAll = false,
@@ -129,16 +122,16 @@ export async function installRelease({
   onProgress = () => {},
   esptool = null,
 } = {}) {
-  const release = await getReleaseByTag({ owner, repo, tag, fetchFn })
-  const manifestBytes = await downloadAssetBytes(findAsset(release, manifestName), fetchFn)
-  const entries = parseManifest(JSON.parse(new TextDecoder().decode(manifestBytes)), {
-    expectedChip,
-  })
+  const manifestRes = await fetchFn(`${fwBase}/${manifestName}`)
+  if (!manifestRes.ok) {
+    throw new Error(`No install files for this version (HTTP ${manifestRes.status})`)
+  }
+  const entries = parseManifest(await manifestRes.json(), { expectedChip })
   const port = await requestPort()
   const files = []
   for (const e of entries) {
     onProgress({ phase: 'download', file: e.name })
-    files.push({ ...e, data: await downloadAssetBytes(findAsset(release, e.name), fetchFn) })
+    files.push({ ...e, data: await downloadBytes(`${fwBase}/${e.name}`, fetchFn) })
   }
   const chip = await flashDevice({
     port,
