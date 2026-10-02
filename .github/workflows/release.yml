@@ -10,9 +10,12 @@
 #   sesamemaker-$CHIP-$TAG-factory.bin   merged image, flash at 0x0 (browser)
 #   sesamemaker-$CHIP-$TAG-spiffs.bin    web UI image, flash at 0x37C000 (browser)
 #   sesamemaker-$CHIP-$TAG-app.bin       app image for on-device OTA (inactive ota_x slot)
-#   sesamemaker-$CHIP-manifest.json      UNVERSIONED name so both the browser
-#     (…/releases/download/$TAG/…) and the device (…/releases/latest/download/…)
-#     fetch it from a stable URL; the version lives inside.
+#   sesamemaker-$CHIP-manifest.json      UNVERSIONED name so the device
+#     (…/releases/latest/download/…) fetches it from a stable URL; the
+#     version lives inside.
+# The browser flasher does NOT use releases/download (github.com sends no
+# CORS headers): the pages job below re-publishes every release's assets
+# into the Pages site at fw/$TAG/, and the installer fetches same-origin.
 # Manifest: {version, chip, files:[...], app:{...}, signature, key_id}.
 # `files` (factory+spiffs, hex offsets) drive the browser flasher; `app`
 # drives on-device OTA. `signature` is ECDSA-P256 over the canonical manifest
@@ -30,7 +33,44 @@ permissions:
   contents: write
 
 jobs:
+  # Lint + tests run before anything builds: red code never reaches the
+  # signing step or the site deploy.
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Lint (Prettier + boundary)
+        run: npm run lint
+
+      - name: Run tests (CLI + frontend + backend host)
+        run: npm run test
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Test manifest signer
+        run: |
+          pip install cryptography
+          python3 tools/sign_manifest.test.py
+
   release:
+    needs: validate
     runs-on: ubuntu-latest
     # Tag push (or manual dispatch) triggers; the environment's required
     # reviewers approve before anything signs. The OTA key only exists here.
@@ -156,3 +196,54 @@ jobs:
             sesamemaker-*-app.bin
             sesamemaker-*-manifest.json
           generate_release_notes: true
+
+  # Site + firmware in one deploy (ex deploy-page.yml, folded in so tags
+  # need no manual step): validate, build the Pages site, bundle every
+  # release's assets under fw/<tag>/ (same-origin for the browser
+  # installer), publish. Runs after all chip builds so the new tag's
+  # files are present.
+  pages:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Build for GitHub Pages
+        run: npm run build:github
+        working-directory: ./frontend
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Bundle release firmware (same-origin for the installer)
+        uses: ./.github/actions/bundle-fw
+        with:
+          site-dir: ./frontend/dist
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./frontend/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

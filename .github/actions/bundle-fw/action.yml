@@ -1,0 +1,26 @@
+# Bundle every release's firmware files into the Pages site at fw/<tag>/
+# so the browser installer fetches them same-origin (github.com sends no
+# CORS headers, so release downloads never work from the browser).
+# Server-side gh download, no browser involved. Shared by release.yml (tag
+# deploys) and deploy-page.yml (manual redeploys) so neither can wipe fw/.
+name: Bundle release firmware for Pages
+description: Download all release assets into <site>/fw/<tag>/
+inputs:
+  site-dir:
+    description: Built site directory (receives fw/<tag>/)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Download release firmware into the site
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        DEST="${{ inputs.site-dir }}/fw"
+        mkdir -p "$DEST"
+        for tag in $(gh release list --limit 50 --json tagName --jq '.[].tagName'); do
+          mkdir -p "$DEST/$tag"
+          gh release download "$tag" --dir "$DEST/$tag" --clobber
+        done
+        find "$DEST" -type f | sort
