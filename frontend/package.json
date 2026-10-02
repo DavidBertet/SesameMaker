@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "concurrently \"vite\" \"node mock-ws-server.cjs\"",
-    "build": "vite build && rm -f dist/SetupTab-*.js && rm -rf ../backend/data/* && find dist -name '*.map' -exec gzip {} \\; && cp -r dist/* ../backend/data",
+    "build": "vite build && rm -f dist/SetupTab-*.js && mkdir -p ../backend/data && rm -rf ../backend/data/* && find dist -name '*.map' -exec gzip {} \\; && cp -r dist/* ../backend/data",
     "build:github": "vite build --mode github",
     "test": "node --test src/core/lib/*.test.js src/app/lib/*.test.js",
     "lint": "prettier --check \"src/**/*.{js,ts,svelte,html,css,json}\"",
