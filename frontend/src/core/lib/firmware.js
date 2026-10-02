@@ -28,8 +28,20 @@ export function pickLatestRelease(releases) {
   return releases.find((r) => !r.prerelease) || releases[0]
 }
 
-export function releaseDownloadBase({ owner, repo, tag }) {
-  return `https://github.com/${owner}/${repo}/releases/download/${tag}`
+// Release assets must go through api.github.com: github.com download URLs
+// send no CORS headers, so browser fetches from them are always blocked.
+// The API serves asset bytes with Access-Control-Allow-Origin: * when asked
+// for application/octet-stream.
+export async function getReleaseByTag({ owner, repo, tag, fetchFn = fetch }) {
+  const res = await fetchFn(`${GITHUB_API}/repos/${owner}/${repo}/releases/tags/${tag}`)
+  if (!res.ok) throw new Error(`No release ${tag} (HTTP ${res.status})`)
+  return res.json()
+}
+
+function findAsset(release, name) {
+  const asset = (release.assets || []).find((a) => a.name === name)
+  if (!asset) throw new Error(`Release has no file named ${name}`)
+  return asset
 }
 
 // Manifest shape from the release workflow:
@@ -52,9 +64,9 @@ export function parseManifest(raw, { expectedChip = null } = {}) {
   })
 }
 
-async function downloadImage(url, fetchFn) {
-  const res = await fetchFn(url)
-  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status}): ${url}`)
+async function downloadAssetBytes(asset, fetchFn) {
+  const res = await fetchFn(asset.url, { headers: { Accept: 'application/octet-stream' } })
+  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status}): ${asset.name}`)
   return new Uint8Array(await res.arrayBuffer())
 }
 
@@ -117,17 +129,16 @@ export async function installRelease({
   onProgress = () => {},
   esptool = null,
 } = {}) {
-  const base = releaseDownloadBase({ owner, repo, tag })
-  const manifestRes = await fetchFn(`${base}/${manifestName}`)
-  if (!manifestRes.ok) {
-    throw new Error(`No install files for ${tag} (HTTP ${manifestRes.status})`)
-  }
-  const entries = parseManifest(await manifestRes.json(), { expectedChip })
+  const release = await getReleaseByTag({ owner, repo, tag, fetchFn })
+  const manifestBytes = await downloadAssetBytes(findAsset(release, manifestName), fetchFn)
+  const entries = parseManifest(JSON.parse(new TextDecoder().decode(manifestBytes)), {
+    expectedChip,
+  })
   const port = await requestPort()
   const files = []
   for (const e of entries) {
     onProgress({ phase: 'download', file: e.name })
-    files.push({ ...e, data: await downloadImage(`${base}/${e.name}`, fetchFn) })
+    files.push({ ...e, data: await downloadAssetBytes(findAsset(release, e.name), fetchFn) })
   }
   const chip = await flashDevice({
     port,
