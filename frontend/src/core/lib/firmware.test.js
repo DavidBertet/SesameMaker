@@ -245,6 +245,34 @@ test('parseManifest rejects absurd addresses instead of bricking the flash', () 
   )
 })
 
+test('parseManifest handles the discrete-parts layout (no NVS coverage)', () => {
+  const parts = parseManifest(
+    {
+      version: 'v9.9.9',
+      chip: 'ESP32-C6',
+      files: [
+        { name: 'x-bootloader.bin', offset: '0x0', size: 20000 },
+        { name: 'x-partitions.bin', offset: '0x8000', size: 3072 },
+        { name: 'x-otadata-initial.bin', offset: '0xd000', size: 8192 },
+        { name: 'x-app.bin', offset: '0x10000', size: 1500000 },
+        { name: 'x-spiffs.bin', offset: '0x37c000', size: 540672 },
+      ],
+    },
+    { expectedChip: 'ESP32-C6' },
+  )
+  assert.deepEqual(
+    parts.map((p) => p.address),
+    [0x0, 0x8000, 0xd000, 0x10000, 0x37c000],
+  )
+  // NVS (0x9000), phy (0xf000) and the data stores are never written.
+  for (const covered of [0x9000, 0xf000, 0x370000, 0x374000, 0x378000]) {
+    assert.ok(
+      parts.every((p) => covered < p.address || covered >= p.address + p.size),
+      `0x${covered.toString(16)} must not be covered`,
+    )
+  }
+})
+
 test('parseManifest rejects malformed manifests and chip mismatch', () => {
   assert.throws(() => parseManifest(null), /malformed/)
   assert.throws(() => parseManifest({ files: [] }), /malformed/)
