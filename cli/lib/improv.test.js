@@ -227,6 +227,30 @@ test('resolvePortPath keeps the known path when ambiguous or list fails', async 
   assert.equal(await resolvePortPath('/dev/gone', failing), '/dev/gone')
 })
 
+test('resolvePortPath collapses driver aliases of one chip', async () => {
+  const { resolvePortPath } = loadImprov()
+  // macOS exposes one CH340 as two /dev nodes sharing a locationId.
+  const aliases = {
+    SerialPort: {
+      list: async () => [
+        {
+          path: '/dev/tty.usbserial-210',
+          locationId: '02100000',
+          vendorId: '1a86',
+          productId: '7523',
+        },
+        {
+          path: '/dev/tty.wchusbserial210',
+          locationId: '02100000',
+          vendorId: '1a86',
+          productId: '7523',
+        },
+      ],
+    },
+  }
+  assert.equal(await resolvePortPath(undefined, aliases), '/dev/tty.usbserial-210')
+})
+
 test('getNetworkState parses flags and urls', async () => {
   const impl = loadImprov()
   const { buildFrame, parseFrames, TYPE, RPC } = impl

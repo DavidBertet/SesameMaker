@@ -23,10 +23,10 @@ const RPC = {
   GET_INFO: 0x03,
   GET_NETWORKS: 0x04,
   GET_NETSTATE: 0x07,
-  SET_OTA_PASSWORD: 0x10, // SesameMaker extension (see improv.h)
-  GET_OTA_PASSWORD: 0x11, // SesameMaker extension (read-back for install.sh)
-  NETWORK_RESET: 0x12, // SesameMaker extension (forget WiFi, clear OTA pw, reboot)
-  FACTORY_RESET: 0x13, // SesameMaker extension (erase all NVS, reboot)
+  SET_OTA_PASSWORD: 0x10, // Extension (see improv.h)
+  GET_OTA_PASSWORD: 0x11, // Extension (read-back for install.sh)
+  NETWORK_RESET: 0x12, // Extension (forget WiFi, clear OTA pw, reboot)
+  FACTORY_RESET: 0x13, // Extension (erase all NVS, reboot)
 }
 
 const ERROR_NAMES = {
@@ -258,6 +258,26 @@ async function resolvePortPath(preferredPath, serialLib = null) {
   const cands = paths.filter((p) => /usbmodem|usbserial|slab|ttyusb|ttyacm|^com\d+$/i.test(p))
   if (cands.length === 1) {
     return cands[0]
+  }
+  // One USB-UART chip often shows up as several /dev nodes (macOS Apple +
+  // vendor driver aliases sharing a locationId). Same hardware twice is not
+  // ambiguity: collapse by hardware identity and follow a single device.
+  // Nodes without any identity stay distinct so two truly different devices
+  // never collapse into one.
+  const byHardware = new Map()
+  for (const p of ports) {
+    if (!cands.includes(p.path)) {
+      continue
+    }
+    const id =
+      p.locationId || [p.vendorId, p.productId, p.serialNumber].filter(Boolean).join(':') || p.path
+    if (!byHardware.has(id)) {
+      byHardware.set(id, [])
+    }
+    byHardware.get(id).push(p.path)
+  }
+  if (byHardware.size === 1) {
+    return byHardware.get([...byHardware.keys()][0])[0]
   }
   return preferredPath
 }
