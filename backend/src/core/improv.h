@@ -12,7 +12,7 @@
 // log output nor commands ever start with the magic, so both sides resync
 // through noise.
 //
-// SesameMaker extension: RPC 0x10 sets the OTA upload password
+// Extension: RPC 0x10 sets the OTA upload password
 // ([pass_len][pass], 0 clears it). RPC 0x11 reads it back (USB-physical
 // only; anyone holding the cable could overwrite it or flash anything
 // anyway, so reading adds no capability — it lets install.sh print the
@@ -57,18 +57,17 @@
 #define IMPROV_RPC_GET_HOSTNAME 0x05
 #define IMPROV_RPC_GET_DEVNAME 0x06
 #define IMPROV_RPC_GET_NETSTATE 0x07
-// SesameMaker extension: set the OTA upload password.
+// Extension: set the OTA upload password.
 #define IMPROV_RPC_SET_OTA_PASSWORD 0x10
-// SesameMaker extension: read it back (USB-physical only; anyone holding
+// Extension: read it back (USB-physical only; anyone holding
 // the cable could overwrite it or flash anything anyway, so reading adds
 // no capability — it lets install.sh print the effective password).
 #define IMPROV_RPC_GET_OTA_PASSWORD 0x11
-// SesameMaker extension: network reset (empty payload, empty result).
+// Extension: network reset (empty payload, empty result).
 // Forgets WiFi, deletes the OTA password key, then reboots.
 #define IMPROV_RPC_NETWORK_RESET 0x12
-// SesameMaker extension: full factory reset (empty payload, empty result).
-// Erases default NVS (WiFi + all app settings) and the Zigbee/HomeKit
-// partitions, then reboots.
+// Extension: full factory reset (empty payload, empty result).
+// Erases default NVS (WiFi + all app settings), then reboots.
 #define IMPROV_RPC_FACTORY_RESET 0x13
 
 #define IMPROV_SSID_MAX 32

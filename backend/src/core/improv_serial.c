@@ -6,6 +6,7 @@
 #include "storage.h"
 #include "webfile.h"
 #include "wifi.h"
+#include "product.h"
 
 #include "sdkconfig.h"
 
@@ -132,7 +133,7 @@ static void send_settings_response(uint8_t cmd)
 static void send_device_info(void)
 {
     const char *version = FW_VERSION[0] ? FW_VERSION : "dev";
-    const char *info[] = {"SesameMaker", version, CONFIG_IDF_TARGET, "SesameMaker"};
+    const char *info[] = {PRODUCT_NAME, version, CONFIG_IDF_TARGET, PRODUCT_NAME};
     send_result(IMPROV_RPC_GET_INFO, info, 4);
 }
 
@@ -277,10 +278,10 @@ static void handle_set_ota_password(const uint8_t *payload, size_t plen)
 
 static void handle_network_reset(void)
 {
-    // Network identity only: door calibration and app settings stay.
+    // Network identity only: product calibration and app settings stay.
     // Deleting (not clearing) the key makes the next boot generate a fresh
     // random OTA password; forgetting STA creds drops the device back to
-    // the "SesameMaker" setup AP.
+    // the product setup AP.
     delete_str("ota_password");
     wifi_stop_sta_connection();
     ESP_LOGW(TAG, "Network reset over USB: WiFi forgotten, OTA password cleared, rebooting");
@@ -293,9 +294,9 @@ static void handle_network_reset(void)
 static void handle_factory_reset(void)
 {
     // Full wipe, acked before the erase (NVS is gone right after). Default
-    // partition holds WiFi + the app "storage" namespace (door, MQTT,
-    // protocol, OTA password); zb_storage the Zigbee dataset; hk_storage
-    // HomeKit pairing + setup code. Reboot lands on first-boot defaults.
+    // partition holds WiFi + the app "storage" namespace (product settings,
+    // OTA password); product partitions (if any) follow. Missing partitions
+    // are a harmless no-op. Reboot lands on first-boot defaults.
     send_result(IMPROV_RPC_FACTORY_RESET, NULL, 0);
     ESP_LOGW(TAG, "Factory reset over USB: erasing all NVS, rebooting");
     nvs_flash_erase();
