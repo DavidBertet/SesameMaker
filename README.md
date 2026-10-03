@@ -1,7 +1,7 @@
 # SesameMaker: ESP32 Garage Door Controller
 
 <div align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
+  <img src="https://img.shields.io/github/v/release/DavidBertet/SesameMaker" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/status-active-brightgreen" alt="Status">
 </div><br/>

@@ -20,7 +20,8 @@
   import { PlugZap, Usb } from 'lucide-svelte'
 
   // Release binaries come from GitHub releases (see .github/workflows/release.yml).
-  // One firmware per chip — the picker offers every variant the release builds.
+  // One firmware per chip — the installer auto-detects the plugged board
+  // and maps it to its variant below.
   const FIRMWARE_VARIANTS = [
     {
       id: 'esp32c6',
@@ -143,8 +144,7 @@
             What you need
           </Card.Title>
           <Card.Description>
-            An ESP32 board with a USB port (C6, C3 or S3 — pick yours below), a USB cable, and this
-            page.
+            An ESP32 board with a USB port (C6, C3 or S3) and an USB cable.
           </Card.Description>
         </Card.Header>
         <Card.Content>

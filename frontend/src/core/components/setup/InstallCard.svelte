@@ -15,7 +15,7 @@
   import { Progress } from '$lib/components/ui/progress'
   import { Skeleton } from '$lib/components/ui/skeleton'
   import { Select, SelectTrigger, SelectContent, SelectItem } from '$lib/components/ui/select'
-  import { Download, PackageCheck } from 'lucide-svelte'
+  import { Download } from 'lucide-svelte'
   import { toast } from 'svelte-sonner'
 
   import {
@@ -23,6 +23,8 @@
     pickLatestRelease,
     installRelease,
     firmwareFileBase,
+    detectChip,
+    resolveVariant,
   } from 'src/core/lib/firmware.js'
 
   let {
@@ -30,6 +32,8 @@
     repo,
     // One firmware per chip: [{id, label, expectedChip, manifestName}].
     // manifestName is stable across releases (version lives inside).
+    // The board is auto-detected — no picker, resolveVariant maps the
+    // detected chip to its variant.
     variants = [],
     onInstalled = () => {},
   } = $props()
@@ -38,18 +42,29 @@
   let releasesLoading = $state(true)
   let releasesError = $state('')
   let pickedTag = $state('')
-  let pickedVariantId = $state(variants[0]?.id || '')
+  let detectedChip = $state('')
   let eraseAll = $state(false)
   let flashBusy = $state(false)
-  let flashProgress = $state(null) // {phase, file, written, total}
-  let flashDone = $state(false)
+  let flashProgress = $state(null) // {phase: detect|download|flash, file, written, total}
 
   const pickedRelease = $derived(releases.find((r) => r.tag === pickedTag) || null)
-  const pickedVariant = $derived(variants.find((v) => v.id === pickedVariantId) || null)
   const flashPct = $derived(
     flashProgress && flashProgress.phase === 'flash' && flashProgress.total
       ? Math.round((flashProgress.written / flashProgress.total) * 100)
       : 0,
+  )
+  // Board first, then what is happening to it — detection always precedes
+  // the file phases, so the chip is known by the time this shows.
+  const progressLabel = $derived(
+    !flashProgress
+      ? ''
+      : flashProgress.phase === 'detect'
+        ? 'Detecting board…'
+        : `${detectedChip ? `${detectedChip} — ` : ''}${
+            flashProgress.phase === 'download'
+              ? `Downloading ${flashProgress.file}…`
+              : `Flashing ${flashProgress.file} — ${flashPct}%`
+          }`,
   )
 
   onMount(() => {
@@ -71,23 +86,29 @@
     }
   }
 
-  // Burn the picked release, then hand the released port back. A reboot
-  // re-enumeration kills the port object; the host then falls back to a
-  // manual connect.
+  // Burn the picked release, then hand the released port back. The board is
+  // detected first (chip → variant); a reboot re-enumeration kills the port
+  // object, so the host falls back to a manual connect. The picked port is
+  // reused for flashing — no second picker.
   async function install() {
-    if (!pickedTag || !pickedVariant || flashBusy) return
+    if (!pickedTag || flashBusy) return
     flashBusy = true
-    flashDone = false
     flashProgress = null
+    detectedChip = ''
     try {
+      const pickedPort = await navigator.serial.requestPort()
+      flashProgress = { phase: 'detect' }
+      const chip = await detectChip({ port: pickedPort })
+      detectedChip = chip
+      const variant = resolveVariant(variants, chip)
       const { port } = await installRelease({
         fwBase: firmwareFileBase(pickedTag, import.meta.env.BASE_URL),
-        manifestName: pickedVariant.manifestName,
-        expectedChip: pickedVariant.expectedChip || null,
+        manifestName: variant.manifestName,
+        expectedChip: variant.expectedChip || null,
         eraseAll,
+        requestPort: async () => pickedPort,
         onProgress: (p) => (flashProgress = p),
       })
-      flashDone = true
       toast.success(`Installed ${pickedTag} — waiting for the device to boot…`)
       await new Promise((r) => setTimeout(r, 3000))
       await port.open({ baudRate: 115200 })
@@ -101,7 +122,6 @@
       } else {
         toast.error(e.message || String(e))
       }
-      flashDone = false
     } finally {
       flashBusy = false
       flashProgress = null
@@ -116,7 +136,7 @@
       New board? Install the firmware
     </Card.Title>
     <Card.Description
-      >Pick a release, plug the board in, burn. Takes about a minute.</Card.Description
+      >Pick a release, plug the board in, burn. Board detected automatically. Takes about a minute.</Card.Description
     >
   </Card.Header>
   <Card.Content class="space-y-4">
@@ -128,26 +148,6 @@
         <Button size="sm" variant="ghost" onclick={loadReleases}>Retry</Button>
       </p>
     {:else}
-      {#if variants.length > 1}
-        <div class="space-y-2">
-          <Label class="font-medium">Board</Label>
-          <Select
-            type="single"
-            value={pickedVariantId}
-            onValueChange={(v) => (pickedVariantId = v)}
-            disabled={flashBusy}
-          >
-            <SelectTrigger aria-label="Board variant">
-              {pickedVariant ? pickedVariant.label : 'Select your board…'}
-            </SelectTrigger>
-            <SelectContent>
-              {#each variants as v}
-                <SelectItem value={v.id}>{v.label}</SelectItem>
-              {/each}
-            </SelectContent>
-          </Select>
-        </div>
-      {/if}
       <div class="space-y-2">
         <Label class="font-medium">Release</Label>
         <Select
@@ -156,7 +156,7 @@
           onValueChange={(v) => (pickedTag = v)}
           disabled={flashBusy}
         >
-          <SelectTrigger aria-label="Firmware release">
+          <SelectTrigger aria-label="Firmware release" class="w-full">
             {pickedRelease ? pickedRelease.name : 'Select a version…'}
             {#if pickedRelease?.prerelease}
               <Badge variant="outline">beta</Badge>
@@ -188,11 +188,7 @@
     {#if flashProgress}
       <div class="space-y-2">
         <p class="text-sm text-muted-foreground">
-          {#if flashProgress.phase === 'download'}
-            Downloading {flashProgress.file}…
-          {:else}
-            Flashing {flashProgress.file} — {flashPct}%
-          {/if}
+          {progressLabel}
         </p>
         {#if flashProgress.phase === 'flash'}
           <Progress value={flashPct} />
@@ -209,10 +205,5 @@
     >
       Connect & install {pickedTag || ''}
     </LoadingButton>
-    {#if flashDone}
-      <p class="text-sm text-muted-foreground flex items-center gap-2">
-        <PackageCheck class="size-4" /> Installed — finishing setup below.
-      </p>
-    {/if}
   </Card.Content>
 </Card.Root>

@@ -8,6 +8,8 @@ import {
   firmwareFileBase,
   parseManifest,
   flashDevice,
+  detectChip,
+  resolveVariant,
   installRelease,
 } from './firmware.js'
 
@@ -53,6 +55,66 @@ test('pickLatestRelease prefers stable, falls back, handles empty', () => {
   const beta = { tag: 'v1.1.0-beta', prerelease: true }
   assert.equal(pickLatestRelease([beta, stable]), stable)
   assert.equal(pickLatestRelease([beta]), beta)
+})
+
+test('detectChip resolves the loader chip at safe baud, then disconnects', async () => {
+  const seen = { baud: null, disconnected: false }
+  const esptool = {
+    Transport: class {
+      disconnect() {
+        seen.disconnected = true
+      }
+    },
+    ESPLoader: class {
+      constructor({ baudrate }) {
+        seen.baud = baudrate
+      }
+      async main() {
+        return 'ESP32-C6'
+      }
+    },
+  }
+  assert.equal(await detectChip({ port: {}, esptool }), 'ESP32-C6')
+  assert.equal(seen.baud, 115200)
+  assert.equal(seen.disconnected, true)
+})
+
+test('detectChip disconnects even when detection throws', async () => {
+  let disconnected = false
+  const esptool = {
+    Transport: class {
+      disconnect() {
+        disconnected = true
+      }
+    },
+    ESPLoader: class {
+      async main() {
+        throw new Error('no sync')
+      }
+    },
+  }
+  await assert.rejects(detectChip({ port: {}, esptool }), /no sync/)
+  assert.equal(disconnected, true)
+})
+
+const VARIANTS = [
+  { id: 'esp32c6', expectedChip: 'ESP32-C6' },
+  { id: 'esp32c3', expectedChip: 'ESP32-C3' },
+  { id: 'esp32s3', expectedChip: 'ESP32-S3' },
+]
+
+test('resolveVariant matches exact and qualified chip names', () => {
+  assert.equal(resolveVariant(VARIANTS, 'ESP32-C6').id, 'esp32c6')
+  assert.equal(resolveVariant(VARIANTS, 'esp32-c3').id, 'esp32c3')
+  assert.equal(resolveVariant(VARIANTS, 'ESP32-C6FH4').id, 'esp32c6')
+})
+
+test('resolveVariant rejects unknown chips, naming what is supported', () => {
+  assert.throws(
+    () => resolveVariant(VARIANTS, 'ESP32'),
+    /Detected ESP32.*ESP32-C6.*ESP32-C3.*ESP32-S3/,
+  )
+  assert.throws(() => resolveVariant([], 'ESP32-C6'), /supported boards: $/)
 })
 
 test('firmwareFileBase points at the same-origin fw bundle', () => {

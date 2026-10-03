@@ -28,6 +28,41 @@ export function pickLatestRelease(releases) {
   return releases.find((r) => !r.prerelease) || releases[0]
 }
 
+// Detect the chip on an already-picked port (safe baud, no flashing).
+// Resolves e.g. 'ESP32-C6'. Transport closed before returning so flashing
+// can reopen the port right after.
+export async function detectChip({ port, baudrate = 115200, esptool = null } = {}) {
+  const { Transport, ESPLoader } = esptool || (await import('esptool-js'))
+  const transport = new Transport(port, false)
+  const quiet = { clean() {}, write() {}, writeLine() {} }
+  const loader = new ESPLoader({ transport, baudrate, terminal: quiet })
+  try {
+    return await loader.main()
+  } finally {
+    try {
+      await transport.disconnect()
+    } catch {
+      // reopened by flashing next
+    }
+  }
+}
+
+// Pick the firmware variant matching a detected chip name. Match direction
+// matters: detected-contains-known ('ESP32-C6FH4' → 'ESP32-C6'), never the
+// reverse (a plain 'ESP32' must not match 'ESP32-C6'). Throws naming the
+// detected chip and every supported board.
+export function resolveVariant(variants, chipName) {
+  const want = (chipName || '').toUpperCase()
+  const hit = (variants || []).find(
+    (v) => v.expectedChip && want.includes(v.expectedChip.toUpperCase()),
+  )
+  if (!hit) {
+    const supported = (variants || []).map((v) => v.expectedChip || v.id).join(', ')
+    throw new Error(`Detected ${chipName || 'unknown chip'} — supported boards: ${supported}`)
+  }
+  return hit
+}
+
 // Same-origin firmware base: flash files are bundled into our Pages site at
 // fw/<tag>/ (see release workflow). github.com and api.github.com asset
 // downloads send no CORS headers, so the browser can only fetch flash files
@@ -98,7 +133,9 @@ async function burnOnce({
   esptool,
 }) {
   const { Transport, ESPLoader } = esptool || (await import('esptool-js'))
-  const transport = new Transport(port, true)
+  // Tracing off: Transport's packet TRACE spam (every SLIP frame) drowns
+  // the console. Flip to true only when debugging the wire protocol.
+  const transport = new Transport(port, false)
   const quiet = { clean() {}, write() {}, writeLine() {} }
   const loader = new ESPLoader({ transport, baudrate, terminal: quiet })
   try {
