@@ -119,14 +119,31 @@ async function burnOnce({
       reportProgress: (fileIndex, written, total) =>
         onProgress({ file: files[fileIndex].name, written, total }),
     })
+    // Exit download mode with the classic EN pulse (esptool.py hard_reset
+    // equivalent: IO0 high, EN low for 100ms, EN high). The bundled
+    // HardReset only deasserts RTS, which changes nothing when lines already
+    // rest there — native USB then sits in download mode forever, looking
+    // exactly like success.
+    let reset = true
     try {
-      await loader.hardReset()
+      await transport.setDTR(false)
+      await transport.setRTS(true)
+      await new Promise((r) => setTimeout(r, 100))
+      await transport.setRTS(false)
     } catch {
-      // already rebooting into the new firmware
+      // Lines un-drivable (port already gone): board needs a manual reset.
+      reset = false
     }
-    return chip
+    return { chip, reset }
   } finally {
-    await transport.disconnect()
+    // Guarded: a disconnect throw here would mask the result above (and a
+    // vanishing post-reboot port routinely throws). The port is unusable
+    // after native-USB re-enumeration either way.
+    try {
+      await transport.disconnect()
+    } catch {
+      // already gone
+    }
   }
 }
 
@@ -166,7 +183,9 @@ export async function flashDevice({
 
 // Full install for one release tag: manifest + images from the same-origin
 // fw bundle, then burn. fwBase comes from firmwareFileBase (picked tag +
-// site base). onProgress gets {phase: 'download'|'flash', ...}.
+// site base). Resolves reset=false when the board didn't reset itself —
+// the caller must ask for a manual reset + port re-pick (native USB dies
+// with the old handle either way). onProgress gets {phase, ...}.
 export async function installRelease({
   fwBase,
   manifestName,
@@ -188,7 +207,7 @@ export async function installRelease({
     onProgress({ phase: 'download', file: e.name })
     files.push({ ...e, data: await downloadBytes(`${fwBase}/${e.name}`, fetchFn) })
   }
-  const chip = await flashDevice({
+  const { chip, reset } = await flashDevice({
     port,
     files,
     expectedChip,
@@ -196,5 +215,5 @@ export async function installRelease({
     onProgress: ({ file, written, total }) => onProgress({ phase: 'flash', file, written, total }),
     esptool,
   })
-  return { chip, port }
+  return { chip, port, reset }
 }

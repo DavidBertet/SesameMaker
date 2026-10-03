@@ -67,6 +67,8 @@ test('flashDevice falls back to slower baud, then uncompressed', async () => {
   let calls = 0
   const esptool = {
     Transport: class {
+      async setDTR() {}
+      async setRTS() {}
       disconnect() {}
     },
     ESPLoader: class {
@@ -82,18 +84,69 @@ test('flashDevice falls back to slower baud, then uncompressed', async () => {
         if (calls === 1)
           throw new Error('Failed to enter compressed flash mode failed with status 196,0')
       }
-      async hardReset() {}
     },
   }
-  const chip = await flashDevice({ port: {}, files: [], esptool })
+  const { chip, reset } = await flashDevice({ port: {}, files: [], esptool })
   assert.equal(chip, 'ESP32-C6')
+  assert.equal(reset, true)
   assert.deepEqual(seenBaud, [921600, 460800])
   assert.deepEqual(seenCompress, [true, true])
+})
+
+test('flashDevice exits download mode with the EN pulse (DTR low, RTS pulse)', async () => {
+  const signals = []
+  const esptool = {
+    Transport: class {
+      async setDTR(state) {
+        signals.push(['DTR', state])
+      }
+      async setRTS(state) {
+        signals.push(['RTS', state])
+      }
+      disconnect() {}
+    },
+    ESPLoader: class {
+      async main() {
+        return 'ESP32-C6'
+      }
+      async writeFlash() {}
+    },
+  }
+  const { chip, reset } = await flashDevice({ port: {}, files: [], esptool })
+  assert.equal(chip, 'ESP32-C6')
+  assert.equal(reset, true)
+  assert.deepEqual(signals, [
+    ['DTR', false],
+    ['RTS', true],
+    ['RTS', false],
+  ])
+})
+
+test('flashDevice reports failure when the reset lines are un-drivable', async () => {
+  const esptool = {
+    Transport: class {
+      async setDTR() {}
+      async setRTS() {
+        throw new Error('port gone')
+      }
+      disconnect() {}
+    },
+    ESPLoader: class {
+      async main() {
+        return 'ESP32-C6'
+      }
+      async writeFlash() {}
+    },
+  }
+  const { reset } = await flashDevice({ port: {}, files: [], esptool })
+  assert.equal(reset, false)
 })
 
 test('flashDevice last resort is slow and uncompressed, then gives up loudly', async () => {
   const esptool = {
     Transport: class {
+      async setDTR() {}
+      async setRTS() {}
       disconnect() {}
     },
     ESPLoader: class {
@@ -103,7 +156,6 @@ test('flashDevice last resort is slow and uncompressed, then gives up loudly', a
       async writeFlash() {
         throw new Error('boom')
       }
-      async hardReset() {}
     },
   }
   await assert.rejects(
@@ -119,6 +171,8 @@ test('flashDevice with explicit baudrate tries once', async () => {
       constructor() {
         transports += 1
       }
+      async setDTR() {}
+      async setRTS() {}
       disconnect() {}
     },
     ESPLoader: class {
@@ -128,7 +182,6 @@ test('flashDevice with explicit baudrate tries once', async () => {
       async writeFlash() {
         throw new Error('boom')
       }
-      async hardReset() {}
     },
   }
   await assert.rejects(
@@ -154,6 +207,8 @@ test('installRelease downloads manifest+images same-origin, then burns', async (
   let written = null
   const esptool = {
     Transport: class {
+      async setDTR() {}
+      async setRTS() {}
       disconnect() {}
     },
     ESPLoader: class {
@@ -163,7 +218,6 @@ test('installRelease downloads manifest+images same-origin, then burns', async (
       async writeFlash({ fileArray }) {
         written = fileArray
       }
-      async hardReset() {}
     },
   }
   const { chip } = await installRelease({
