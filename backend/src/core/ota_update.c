@@ -2,6 +2,7 @@
 
 #include "ota_update.h"
 
+#include "product.h"
 #include "websocket.h"
 #include "wifi.h"
 
@@ -31,7 +32,7 @@ static const char *TAG = "OTA_UPDATE";
 #ifndef OTA_RELEASE_BASE
 #define OTA_RELEASE_BASE ""
 #endif
-#define OTA_RELEASE_BASE_DEFAULT "https://github.com/DavidBertet/SesameMaker/releases/latest/download"
+#define OTA_RELEASE_BASE_DEFAULT PRODUCT_OTA_BASE_DEFAULT
 
 // Release ECDSA-P256 public key: 128 hex chars (uncompressed point without
 // the 0x04 prefix). Production key baked below (public by design);
@@ -41,7 +42,7 @@ static const char *TAG = "OTA_UPDATE";
 #ifndef OTA_PUBKEY_HEX
 #define OTA_PUBKEY_HEX ""
 #endif
-#define OTA_PUBKEY_DEFAULT "0c8c9b162c9fcf3e446d3ecdcce1590e9c5785e3e1f5be3da9ad7335aa75384ee849750fbd29f9433d3676e95feb4a36ded9a43ff209ad03dcdd405dfebd3b23"
+#define OTA_PUBKEY_DEFAULT PRODUCT_OTA_PUBKEY_DEFAULT
 
 static const char *ota_pubkey_hex(void)
 {
@@ -353,7 +354,7 @@ static bool ota_verify_signature(const char *canonical, const char *sig_b64, cha
 bool ota_fetch_manifest(ota_manifest_t *out, char *err, size_t errlen)
 {
     char url[256];
-    snprintf(url, sizeof(url), "%s/sesamemaker-%s-manifest.json", ota_base(), CONFIG_IDF_TARGET);
+    snprintf(url, sizeof(url), "%s/%s-%s-manifest.json", ota_base(), PRODUCT_MANIFEST_PREFIX, CONFIG_IDF_TARGET);
 
     char *body = NULL;
     if (!ota_http_get(url, &body, OTA_MANIFEST_MAX, err, errlen))
@@ -624,7 +625,7 @@ static void ota_update_task(void *arg)
     // unreadable mid-write (we serve from this partition) — the reboot at
     // the end follows immediately.
     char base[192];
-    snprintf(base, sizeof(base), "%s/sesamemaker-%s-manifest.json", ota_base(), CONFIG_IDF_TARGET);
+    snprintf(base, sizeof(base), "%s/%s-%s-manifest.json", ota_base(), PRODUCT_MANIFEST_PREFIX, CONFIG_IDF_TARGET);
     char *slash = strrchr(base, '/');
     if (!slash)
     {
