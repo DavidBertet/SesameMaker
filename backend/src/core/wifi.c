@@ -334,6 +334,15 @@ static void on_sta_disconnected(void *event_data)
     ESP_LOGI(TAG, "Connect to the AP fail");
 }
 
+// One-shot worker for the background-reconnect notification below: posts
+// the fresh wifi status, then deletes itself. Never runs on sys_evt.
+static void wifi_reconnect_notify_task(void *arg)
+{
+    (void)arg;
+    ws_handle_wifi_status(NULL, 0);
+    vTaskDelete(NULL);
+}
+
 static void on_sta_got_ip(void *event_data)
 {
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
@@ -345,8 +354,11 @@ static void on_sta_got_ip(void *event_data)
     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     if (was_reconnecting)
     {
-        // Reconnected in the background: notify websocket clients
-        ws_handle_wifi_status(NULL, 0);
+        // Reconnected in the background: notify websocket clients. Deferred
+        // to a worker: this runs on the sys_evt task (~2.3 kB stack) and the
+        // status payload alone needs more than that — sending inline
+        // overflows sys_evt and reboots the chip (seen in the field).
+        xTaskCreate(wifi_reconnect_notify_task, "wifi_notify", 8192, NULL, 5, NULL);
     }
 }
 
@@ -509,6 +521,10 @@ esp_err_t setup_wifi(void)
     if (is_connected)
     {
         ESP_LOGI(TAG, "Auto-connect successful");
+        // Portal rides along in APSTA whenever it is enabled (FOREVER keeps
+        // it; TIMED gives the usual post-boot config window, then drops to
+        // STA-only). A successful STA must not mean no local portal.
+        setup_apsta();
         return ESP_OK;
     }
     else
