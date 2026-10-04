@@ -172,6 +172,14 @@ export class ImprovSession {
     this.logListeners = new Set()
     this._logText = ''
     this._logDec = new TextDecoder()
+    this.lastActivity = Date.now()
+  }
+
+  // ms since the last RPC went out (every session call funnels through
+  // _write). Hosts use it for idle sweeps (release the port when the user
+  // walks away) without hooking every action.
+  idleMs() {
+    return Date.now() - this.lastActivity
   }
 
   // Console lines from the shared USB line (ESP logs interleaved with
@@ -256,6 +264,7 @@ export class ImprovSession {
     const writer = this.port.writable.getWriter()
     try {
       await writer.write(data)
+      this.lastActivity = Date.now()
     } finally {
       writer.releaseLock()
     }

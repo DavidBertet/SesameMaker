@@ -292,3 +292,13 @@ test('scanNetworks skips stale foreign results', async () => {
     await session.close()
   }
 })
+
+test('idleMs tracks session traffic for idle sweeps', async () => {
+  const port = fakePort(() => {})
+  const session = new ImprovSession(port)
+  try {
+    assert.ok(session.idleMs() >= 0 && session.idleMs() < 5000)
+  } finally {
+    await session.close()
+  }
+})

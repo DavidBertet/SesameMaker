@@ -4,7 +4,7 @@
   an existing board, then the generic core setup cards. Demo builds only
   (dev server + GitHub Pages) — never shipped on the device itself. -->
 <script>
-  import { onDestroy } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import SectionHeader from 'src/core/components/common/SectionHeader.svelte'
   import LoadingButton from 'src/core/components/common/LoadingButton.svelte'
   import InstallCard from 'src/core/components/setup/InstallCard.svelte'
@@ -94,11 +94,40 @@
 
   onDestroy(() => {
     detachUsbConsole()
+    stopIdleSweep()
     if (session) {
       const s = session
       session = null
       s.close().catch(() => {})
     }
+  })
+
+  // Idle sweep: an open WebSerial port locks the device for every other
+  // tool (CLI, esptool). After 3 min with no session traffic, drop it so a
+  // forgotten tab never holds the port forever.
+  const IDLE_LIMIT_MS = 3 * 60 * 1000
+  let idleTimer = $state(null)
+
+  function stopIdleSweep() {
+    if (idleTimer) {
+      clearInterval(idleTimer)
+      idleTimer = null
+    }
+  }
+
+  onMount(() => {
+    idleTimer = setInterval(async () => {
+      if (!session || busy) return
+      try {
+        if (session.idleMs() > IDLE_LIMIT_MS) {
+          await disconnect()
+          toast.info('USB session closed after 3 min idle — port released.')
+        }
+      } catch {
+        // session died under us; disconnect already handles it
+      }
+    }, 30000)
+    return () => stopIdleSweep()
   })
 
   async function fetchInfos() {
