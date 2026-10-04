@@ -52,6 +52,14 @@ static const char *TAG = "webfile";
 
 static esp_ota_handle_t ota_handle;
 
+// App safety stop before flashing (see webfile_register_pre_ota).
+static void (*s_pre_ota_cb)(void) = NULL;
+
+void webfile_register_pre_ota(void (*cb)(void))
+{
+    s_pre_ota_cb = cb;
+}
+
 // Buffer for temporary storage during file transfer
 static char scratch_buffer[SCRATCH_BUFSIZE];
 
@@ -356,6 +364,12 @@ static esp_err_t upload_ota_handler(httpd_req_t *req, const char *session_token)
   int received;
   bool ota_started = false;
   int last_progress_update = 0;
+
+  // Stop the app before flashing (motors, doors, anything dangerous).
+  if (s_pre_ota_cb)
+  {
+    s_pre_ota_cb();
+  }
 
   esp_err_t ret = esp_ota_begin(esp_ota_get_next_update_partition(NULL), OTA_SIZE_UNKNOWN, &ota_handle);
   if (ret != ESP_OK)

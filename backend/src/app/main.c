@@ -30,6 +30,8 @@
 #include "ws_protocol.h"
 #include "ws_left_open.h"
 #include "ws_log.h"
+#include "ws_taskmon.h"
+#include "task_monitor.h"
 
 #include "garage_controller.h"
 #include "app_pins.h"
@@ -177,6 +179,9 @@ void app_main()
   register_callback("log_start", ws_handle_log_start);
   register_callback("log_stop", ws_handle_log_stop);
   ws_log_init();
+
+  register_callback("get_taskmon", ws_handle_get_taskmon);
+  task_monitor_start();
 
   // Hold TX low across any software reset (see hold_garage_tx_low).
   ESP_ERROR_CHECK(esp_register_shutdown_handler(hold_garage_tx_low));

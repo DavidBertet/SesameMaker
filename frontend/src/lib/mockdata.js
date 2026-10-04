@@ -6,6 +6,11 @@ let isConnected = false
 let logIntervals = new Set()
 let busFrames = 128
 
+// Periodic pushes the mock transport emits on its own (none here: the bus
+// stream arrives through log_start above). Core owns the timers; the app
+// only declares the cadence and the payload.
+export const mockPushStreams = []
+
 // ---- Garage mock state ----
 let garage = {
   protocol: 'secplus1',
@@ -237,6 +242,32 @@ export function generateMockResponse(data) {
         { type: 'ota_progress', phase: 'download', written: 512, total: 1024 },
         { type: 'ota_progress', phase: 'download', written: 1024, total: 1024, delay: 500 },
         { type: 'ota_progress', phase: 'done', success: true, delay: 500 },
+      ]
+
+    case 'get_taskmon':
+      return [
+        {
+          type: 'taskmon',
+          period_s: 30,
+          tasks: [
+            { name: 'wifi', free_words: 1536, drift_words: 128, rate_wph: 0, status: 'ok' },
+            {
+              name: 'garage',
+              free_words: 640,
+              drift_words: 64,
+              rate_wph: 4,
+              status: 'ok',
+            },
+            {
+              name: 'httpd',
+              free_words: 384,
+              drift_words: 512,
+              rate_wph: 96,
+              status: 'watch',
+            },
+            { name: 'idle0', free_words: 512, drift_words: 0, rate_wph: 0, status: 'ok' },
+          ],
+        },
       ]
 
     case 'set_settings':

@@ -276,7 +276,7 @@ static int find_client_by_session_token(const char *token)
 
 // Manage messages
 
-esp_err_t send_message_token(char *msg, char *token)
+esp_err_t send_message_token(const char *msg, const char *token)
 {
   if (server == NULL)
   {
@@ -294,7 +294,7 @@ esp_err_t send_message_token(char *msg, char *token)
   return send_message_sockfd(msg, sockfd);
 }
 
-esp_err_t send_message_sockfd(char *msg, int sockfd)
+esp_err_t send_message_sockfd(const char *msg, int sockfd)
 {
   if (server == NULL)
   {
@@ -322,7 +322,7 @@ esp_err_t send_message_sockfd(char *msg, int sockfd)
   return ret;
 }
 
-esp_err_t broadcast_message(char *msg)
+esp_err_t broadcast_message(const char *msg)
 {
   if (server == NULL)
   {
