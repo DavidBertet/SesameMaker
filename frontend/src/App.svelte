@@ -272,7 +272,7 @@
 
 {#if import.meta.env.MODE === 'github'}
   <div class="h-20"></div>
-  <DemoPill live={activeTab === 'setup'} />
+  <DemoPill githubProject="SesameMaker" live={activeTab === 'setup'} />
 {/if}
 
 <DebugConsole {activeTab} />

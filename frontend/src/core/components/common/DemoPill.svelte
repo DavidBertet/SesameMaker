@@ -4,14 +4,14 @@
   import { cn } from '$lib/utils'
 
   // Live tabs (e.g. USB Setup) talk to real hardware: collapse the DEMO label.
-  let { live = false } = $props()
+  let { githubProject, live = false } = $props()
 
   let stars = $state(null)
   let loading = $state(false)
 
   onMount(async () => {
     try {
-      const response = await fetch('https://api.github.com/repos/davidbertet/SesameMaker')
+      const response = await fetch(`https://api.github.com/repos/davidbertet/${githubProject}`)
       const data = await response.json()
       stars = data.stargazers_count
     } catch (error) {
@@ -22,7 +22,7 @@
   })
 
   function openGithub() {
-    window.location = 'https://github.com/davidbertet/SesameMaker'
+    window.location = `https://github.com/davidbertet/${githubProject}`
   }
 </script>
 
