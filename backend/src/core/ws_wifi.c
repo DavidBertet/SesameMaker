@@ -6,6 +6,8 @@
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -14,8 +16,95 @@
 #define MAX_APs 10
 static const char *TAG = "ws_wifi_scan";
 static char json[2048];
-static char entry[128];
+static char entry[384];
 static char status_info[512];
+
+// SSIDs are arbitrary bytes (32 NUL-padded, not necessarily UTF-8): a
+// neighbor's name can hold quotes, backslashes, control bytes or lone UTF-8
+// continuations. Interpolating them raw breaks the JSON envelope at best; at
+// worst the frame is not valid UTF-8 and the browser drops the whole
+// websocket ("Could not decode a text frame as UTF-8"). Escape for JSON and
+// replace invalid sequences with U+FFFD so output is always both.
+#define SSID_ESCAPED_MAX (32 * 6 + 1)
+static void json_escape_ssid(const uint8_t *ssid, char *out, size_t outlen)
+{
+    size_t slen = strnlen((const char *)ssid, 32);
+    size_t o = 0;
+    for (size_t i = 0; i < slen && o + 7 < outlen; i++)
+    {
+        uint8_t c = ssid[i];
+        if (c == '"' || c == '\\')
+        {
+            out[o++] = '\\';
+            out[o++] = (char)c;
+        }
+        else if (c < 0x20)
+        {
+            o += (size_t)snprintf(out + o, outlen - o, "\\u%04x", c);
+        }
+        else if (c < 0x80)
+        {
+            out[o++] = (char)c;
+        }
+        else
+        {
+            // Multi-byte UTF-8: validate before passing through.
+            size_t need = 0;
+            if ((c & 0xE0) == 0xC0)
+            {
+                need = 1;
+            }
+            else if ((c & 0xF0) == 0xE0)
+            {
+                need = 2;
+            }
+            else if ((c & 0xF8) == 0xF0)
+            {
+                need = 3;
+            }
+            bool ok = need > 0 && i + need < slen;
+            for (size_t k = 1; ok && k <= need; k++)
+            {
+                if ((ssid[i + k] & 0xC0) != 0x80)
+                {
+                    ok = false;
+                }
+            }
+            // Reject overlongs/surrogates/out-of-range lead-ins.
+            if (ok)
+            {
+                uint8_t c2 = (need >= 1) ? ssid[i + 1] : 0;
+                if (c < 0xC2 || c >= 0xF5 ||
+                    (c == 0xE0 && c2 < 0xA0) || (c == 0xF0 && c2 < 0x90) ||
+                    (c == 0xED && c2 >= 0xA0))
+                {
+                    ok = false;
+                }
+            }
+            if (ok && o + need + 2 < outlen)
+            {
+                out[o++] = (char)c;
+                for (size_t k = 1; k <= need; k++)
+                {
+                    out[o++] = (char)ssid[i + k];
+                }
+                i += need;
+            }
+            else if (!ok && o + 4 < outlen)
+            {
+                // U+FFFD replacement character.
+                out[o++] = (char)0xEF;
+                out[o++] = (char)0xBF;
+                out[o++] = (char)0xBD;
+            }
+            else if (ok)
+            {
+                break; // no room left: truncate cleanly
+            }
+        }
+    }
+    out[o < outlen ? o : outlen - 1] = '\0';
+}
 
 static const char *wifi_mode_to_string(wifi_mode_t mode)
 {
@@ -105,10 +194,12 @@ static void get_wifi_status_info(char *buffer, size_t buffer_size)
                 esp_ip4addr_ntoa(&ip_info.netmask, netmask_str, sizeof(netmask_str));
             }
 
-            char temp_buffer[256];
+            char temp_buffer[512];
+            char esc_ssid[SSID_ESCAPED_MAX];
+            json_escape_ssid(ap_info.ssid, esc_ssid, sizeof(esc_ssid));
             snprintf(temp_buffer, sizeof(temp_buffer),
                      ",\"sta\":{\"connected\":true,\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%d,\"auth_mode\":\"%s\",\"ip\":\"%s\",\"gateway\":\"%s\",\"netmask\":\"%s\"}",
-                     (char *)ap_info.ssid, ap_info.rssi, ap_info.primary,
+                     esc_ssid, ap_info.rssi, ap_info.primary,
                      wifi_auth_mode_to_string(ap_info.authmode),
                      ip_str, gateway_str, netmask_str);
             strncat(buffer, temp_buffer, buffer_size - strlen(buffer) - 1);
@@ -116,10 +207,12 @@ static void get_wifi_status_info(char *buffer, size_t buffer_size)
         else
         {
             // Not connected but STA mode is active
-            char temp_buffer[128];
+            char temp_buffer[256];
+            char esc_ssid[SSID_ESCAPED_MAX];
+            json_escape_ssid(wifi_config.sta.ssid, esc_ssid, sizeof(esc_ssid));
             snprintf(temp_buffer, sizeof(temp_buffer),
                      ",\"sta\":{\"connected\":false,\"configured_ssid\":\"%s\"}",
-                     (char *)wifi_config.sta.ssid);
+                     esc_ssid);
             strncat(buffer, temp_buffer, buffer_size - strlen(buffer) - 1);
         }
     }
@@ -146,10 +239,12 @@ static void get_wifi_status_info(char *buffer, size_t buffer_size)
         wifi_sta_list_t sta_list;
         esp_wifi_ap_get_sta_list(&sta_list);
 
-        char temp_buffer[256];
+        char temp_buffer[512];
+        char esc_ssid[SSID_ESCAPED_MAX];
+        json_escape_ssid(wifi_config.ap.ssid, esc_ssid, sizeof(esc_ssid));
         snprintf(temp_buffer, sizeof(temp_buffer),
                  ",\"ap\":{\"ssid\":\"%s\",\"channel\":%d,\"auth_mode\":\"%s\",\"ip\":\"%s\",\"mac\":\"%s\",\"connected_stations\":%d,\"max_connections\":%d}",
-                 (char *)wifi_config.ap.ssid, wifi_config.ap.channel,
+                 esc_ssid, wifi_config.ap.channel,
                  wifi_auth_mode_to_string(wifi_config.ap.authmode),
                  ip_str, ap_mac_str, sta_list.num, wifi_config.ap.max_connection);
         strncat(buffer, temp_buffer, buffer_size - strlen(buffer) - 1);
@@ -189,10 +284,12 @@ void ws_handle_wifi_scan(const cJSON *root, int sockfd)
 
     for (int i = 0; i < ap_num; ++i)
     {
+        char esc_ssid[SSID_ESCAPED_MAX];
+        json_escape_ssid(ap_records[i].ssid, esc_ssid, sizeof(esc_ssid));
         snprintf(entry, sizeof(entry),
                  "%s{\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%d,\"auth_mode\":\"%s\",\"secure\":%s}",
                  (i > 0 ? "," : ""),
-                 (char *)ap_records[i].ssid,
+                 esc_ssid,
                  ap_records[i].rssi,
                  ap_records[i].primary,
                  wifi_auth_mode_to_string(ap_records[i].authmode),
