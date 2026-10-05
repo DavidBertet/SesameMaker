@@ -146,7 +146,7 @@ static void restart_task(void *pvParameter)
   esp_restart();
 }
 
-static void send_upload_progress(int loaded, int total, char *token)
+static void send_upload_progress(int loaded, int total, const char *token)
 {
   char message[128];
   int ret = snprintf(message, sizeof(message),
@@ -296,10 +296,22 @@ static esp_err_t download_get_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Set-Cookie", cookie_header);
   }
 
-  // Use etag to determine if the file has changed
+  // ETag folds size, name and head bytes: a same-size replacement still
+  // mismatches, so long max-age below never serves a stale bundle.
+  uint32_t head_hash = 0;
+  {
+    uint8_t head[16];
+    size_t head_len = fread(head, 1, sizeof(head), fd);
+    for (size_t i = 0; i < head_len; i++)
+    {
+      head_hash = ((head_hash << 5) + head_hash) + head[i];
+    }
+    fseek(fd, 0, SEEK_SET);
+  }
   char etag[32];
   char if_none_match[32];
-  snprintf(etag, sizeof(etag), "\"%08x\"", (unsigned int)(file_stat.st_size ^ hash_filename(filename)));
+  snprintf(etag, sizeof(etag), "\"%08x\"",
+           (unsigned int)(file_stat.st_size ^ hash_filename(filename) ^ head_hash));
 
   if ((httpd_req_get_hdr_value_str(req, "If-None-Match", if_none_match, sizeof(if_none_match)) == ESP_OK) &&
       strcmp(if_none_match, etag) == 0)
@@ -317,7 +329,10 @@ static esp_err_t download_get_handler(httpd_req_t *req)
 
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
   httpd_resp_set_hdr(req, "ETag", etag);
-  httpd_resp_set_hdr(req, "Cache-Control", "private, must-revalidate");
+  // Cache aggressively: the ETag above changes with any content change, so
+  // repeat views skip the network entirely; expiry/force-reload falls back
+  // to the 304 path. Matters on slow links (150 kB bundle).
+  httpd_resp_set_hdr(req, "Cache-Control", "private, max-age=86400, must-revalidate");
 
   size_t chunksize;
   do
