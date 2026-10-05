@@ -14,7 +14,11 @@
   import SetupOtaCard from 'src/core/components/setup/SetupOtaCard.svelte'
   import SetupResetsCard from 'src/core/components/setup/SetupResetsCard.svelte'
   import { ImprovSession, requestDevicePort } from 'src/core/lib/serialImprov.js'
-  import { attachUsbConsole, detachUsbConsole } from 'src/core/lib/usbConsole.svelte.js'
+  import {
+    attachUsbConsole,
+    detachUsbConsole,
+    usbConsoleUiState,
+  } from 'src/core/lib/usbConsole.svelte.js'
   import { toast } from 'svelte-sonner'
   import * as Card from '$lib/components/ui/card'
   import { PlugZap, Usb } from 'lucide-svelte'
@@ -117,7 +121,8 @@
 
   onMount(() => {
     idleTimer = setInterval(async () => {
-      if (!session || busy) return
+      // An open debug console is active use even with no RPC traffic.
+      if (!session || busy || usbConsoleUiState.open) return
       try {
         if (session.idleMs() > IDLE_LIMIT_MS) {
           await disconnect()

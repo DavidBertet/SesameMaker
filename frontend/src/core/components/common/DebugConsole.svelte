@@ -4,7 +4,11 @@
   import { onDestroy } from 'svelte'
   import { slide } from 'svelte/transition'
   import { sendMessage, onMessageType } from 'src/core/lib/ws.svelte.js'
-  import { usbConsoleState, clearUsbConsole } from 'src/core/lib/usbConsole.svelte.js'
+  import {
+    usbConsoleState,
+    usbConsoleUiState,
+    clearUsbConsole,
+  } from 'src/core/lib/usbConsole.svelte.js'
   import { Terminal, X, Trash2 } from 'lucide-svelte'
 
   // On the USB Setup tab the console is meaningless until a USB session is
@@ -98,6 +102,11 @@
     open = false
     stopLogs()
   }
+
+  // Mirror visibility for the SetupTab idle sweep (open console = in use).
+  $effect(() => {
+    usbConsoleUiState.open = open
+  })
 
   function startLogs() {
     if (usbMode) return // USB lines flow via usbConsoleState; nothing to subscribe

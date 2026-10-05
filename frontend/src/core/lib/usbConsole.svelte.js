@@ -10,6 +10,10 @@ const MAX_LINES = 200
 
 export const usbConsoleState = $state({ live: false, lines: [] })
 
+// Panel visibility (set by DebugConsole). The SetupTab idle sweep treats an
+// open console as use and never releases the port under it.
+export const usbConsoleUiState = $state({ open: false })
+
 let detach = null
 
 export function attachUsbConsole(session) {
