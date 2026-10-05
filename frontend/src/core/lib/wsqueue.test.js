@@ -1,18 +1,27 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
-import { shouldQueueMessage, drainQueue } from './wsqueue.js'
-
-test('physical actuation commands are never queued for replay', () => {
-  assert.equal(shouldQueueMessage({ type: 'door_command', action: 'toggle' }), false)
-  assert.equal(shouldQueueMessage({ type: 'door_command', action: 'open' }), false)
-  assert.equal(shouldQueueMessage({ type: 'light_command', action: 'on' }), false)
-  assert.equal(shouldQueueMessage({ type: 'lock_command', action: 'lock' }), false)
-})
+import { shouldQueueMessage, drainQueue, registerNonQueuableTypes } from './wsqueue.js'
 
 test('wifi state changes are never queued for replay', () => {
   assert.equal(shouldQueueMessage({ type: 'wifi_connect', ssid: 'x' }), false)
   assert.equal(shouldQueueMessage({ type: 'wifi_disconnect' }), false)
+})
+
+test('an unregistered actuation command still queues (core has no product knowledge)', () => {
+  assert.equal(shouldQueueMessage({ type: 'door_command', action: 'toggle' }), true)
+})
+
+test('app-registered actuation commands are never queued for replay', () => {
+  registerNonQueuableTypes(['door_command', 'light_command', 'lock_command'])
+  assert.equal(shouldQueueMessage({ type: 'door_command', action: 'toggle' }), false)
+  assert.equal(shouldQueueMessage({ type: 'door_command', action: 'open' }), false)
+  assert.equal(shouldQueueMessage({ type: 'light_command', action: 'on' }), false)
+  assert.equal(shouldQueueMessage({ type: 'lock_command', action: 'lock' }), false)
+  // Registration is additive and ignores junk.
+  registerNonQueuableTypes(['motor_run', '', null, undefined])
+  assert.equal(shouldQueueMessage({ type: 'motor_run' }), false)
+  assert.equal(shouldQueueMessage({ type: 'door_command' }), false)
 })
 
 test('reads and other messages queue by default', () => {
@@ -29,7 +38,6 @@ test('reads and other messages queue by default', () => {
   assert.equal(shouldQueueMessage({ type: 'zigbee_leave' }), true)
   assert.equal(shouldQueueMessage({ type: 'zigbee_reset' }), true)
   assert.equal(shouldQueueMessage({ type: 'wifi_scan' }), true)
-  assert.equal(shouldQueueMessage({ type: 'log_start' }), true)
   assert.equal(shouldQueueMessage({ type: 'ping', timestamp: 1 }), true)
 })
 

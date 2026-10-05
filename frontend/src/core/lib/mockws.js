@@ -1,6 +1,6 @@
 // Copyright (c) 2026 David Bertet. Licensed under the MIT License.
 
-import { generateMockResponse, cleanupMockLogs } from 'src/lib/mockdata.js'
+import { generateMockResponse, cleanupMockLogs, mockPushStreams } from 'src/lib/mockdata.js'
 
 window.WebSocket = class MockWebSocket extends EventTarget {
   constructor(url) {
@@ -11,6 +11,9 @@ window.WebSocket = class MockWebSocket extends EventTarget {
     this.onmessage = null
     this.onclose = null
     this.onerror = null
+    // Periodic pushes declared by the app's mockdata (empty = none). Core
+    // owns the timers so a closed socket can never leave one behind.
+    this.streams = []
 
     // Simulate connection opening
     setTimeout(() => {
@@ -20,6 +23,18 @@ window.WebSocket = class MockWebSocket extends EventTarget {
 
       if (this.onopen) {
         this.onopen(event)
+      }
+
+      for (const stream of mockPushStreams || []) {
+        this.streams.push(
+          setInterval(() => {
+            const message = typeof stream.message === 'function' ? stream.message() : stream.message
+            if (!message) return
+            const tick = new MessageEvent('message', { data: JSON.stringify(message) })
+            this.dispatchEvent(tick)
+            if (this.onmessage) this.onmessage(tick)
+          }, stream.intervalMs),
+        )
       }
     }, 100)
   }
@@ -62,6 +77,8 @@ window.WebSocket = class MockWebSocket extends EventTarget {
   }
 
   close() {
+    this.streams.forEach(clearInterval)
+    this.streams = []
     cleanupMockLogs()
     window.__mockLogSend = null
     this.readyState = WebSocket.CLOSED

@@ -25,6 +25,8 @@
     onMessageType,
   } from 'src/core/lib/ws.svelte.js'
   import { initializeSettings } from 'src/core/lib/settings.svelte.js'
+  // Registers this product's physical commands as non-queuable (side effect).
+  import 'src/app/lib/wsPolicy.js'
 
   import * as Sidebar from '$lib/components/ui/sidebar'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
