@@ -32,6 +32,11 @@ static httpd_handle_t start_webserver(void)
 
   config.close_fn = on_client_disconnected;
   config.task_priority = 7;
+  // Browsers open ~6 parallel conns per page load and every tab holds a
+  // persistent WS; the default 7 (3 reserved internally) starves with two
+  // tabs open and LRU purge then kills a live websocket. Capped by
+  // LWIP_MAX_SOCKETS - 3 (13 with the stock 16).
+  config.max_open_sockets = 13;
   config.uri_match_fn = httpd_uri_match_wildcard;
   config.lru_purge_enable = true;
   config.enable_so_linger = true;
