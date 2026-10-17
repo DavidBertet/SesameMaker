@@ -20,6 +20,8 @@
 
 #include "constants.h"
 
+#include "wifi_health.h"
+
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
@@ -61,6 +63,16 @@ static esp_timer_handle_t s_reconnect_timer = NULL;
 // Drops to STA-only: the portal is unreachable, STA keeps its background
 // reconnect attempts. A missed window needs a reboot for a fresh one.
 static esp_timer_handle_t s_ap_off_timer = NULL;
+
+// STA link-health watchdog. The AP keeping the association does not mean the
+// link works: after days of uptime the ESP32 can wedge into a state where it
+// is still associated but answers nothing (seen in the field at -86 dBm:
+// activity flatlines to zero on the AP, no ping, no ARP). No
+// WIFI_EVENT_STA_DISCONNECTED ever fires, so the reconnect paths never run.
+// Keying off esp_wifi_sta_get_ap_info catches the zombie case directly.
+#define WIFI_HEALTH_PERIOD_US (60ULL * 1000000ULL) // 60 s
+static esp_timer_handle_t s_health_timer = NULL;
+static int s_health_tick = 0;
 
 // Stations currently joined to the fallback AP. While > 0 the auto-off
 // window is paused so a user mid-configuration is never kicked off; the
@@ -141,6 +153,69 @@ static void start_reconnect_timer(void)
 
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_reconnect_timer, WIFI_RECONNECT_PERIOD_US));
     ESP_LOGI(TAG, "STA reconnect timer started (every %llu s)", WIFI_RECONNECT_PERIOD_US / 1000000ULL);
+}
+
+static void health_timer_callback(void *arg)
+{
+    (void)arg;
+    if (!s_wifi_connected || s_wifi_connecting)
+    {
+        return;
+    }
+
+    wifi_ap_record_t ap_info;
+    esp_err_t err = esp_wifi_sta_get_ap_info(&ap_info);
+    if (err == ESP_OK)
+    {
+        s_health_tick++;
+        // Keep log traffic low: full-detail only in the weak-signal zone,
+        // otherwise every 10th check.
+        if (wifi_health_is_weak_rssi(ap_info.rssi) || s_health_tick % 10 == 0)
+        {
+            ESP_LOGI(TAG, "STA health check: RSSI %d dBm (tick %d)", ap_info.rssi, s_health_tick);
+        }
+        return;
+    }
+
+    wifi_health_action_t action =
+        wifi_health_check(err == ESP_ERR_WIFI_NOT_ASSOC ? WIFI_HEALTH_ERR_NOT_ASSOC
+                                                        : WIFI_HEALTH_ERR_TRANSIENT);
+    if (action == WIFI_HEALTH_ACTION_REASSOC)
+    {
+        ESP_LOGW(TAG, "STA associated but ap_info lookup failed (%s) — zombie link, re-associating",
+                 esp_err_to_name(err));
+        esp_wifi_connect();
+    }
+    else
+    {
+        ESP_LOGI(TAG, "STA health check inconclusive: %s", esp_err_to_name(err));
+    }
+}
+
+static void start_health_timer(void)
+{
+    if (s_health_timer == NULL)
+    {
+        const esp_timer_create_args_t timer_args = {
+            .callback = &health_timer_callback,
+            .name = "sta_health",
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_health_timer));
+    }
+    if (esp_timer_is_active(s_health_timer))
+    {
+        ESP_ERROR_CHECK(esp_timer_stop(s_health_timer));
+    }
+    s_health_tick = 0;
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_health_timer, WIFI_HEALTH_PERIOD_US));
+}
+
+static void stop_health_timer(void)
+{
+    if (s_health_timer != NULL && esp_timer_is_active(s_health_timer))
+    {
+        esp_timer_stop(s_health_timer);
+    }
 }
 
 static bool stop_reconnect_timer(void)
@@ -314,8 +389,12 @@ static void on_sta_disconnected(void *event_data)
     if (event->reason == WIFI_REASON_ASSOC_LEAVE ||
         event->reason == WIFI_REASON_AUTH_LEAVE)
     {
+        stop_health_timer();
         return;
     }
+
+    s_wifi_connected = false;
+    stop_health_timer();
 
     if (s_retry_num < WIFI_MAXIMUM_RETRY)
     {
@@ -352,6 +431,18 @@ static void on_sta_got_ip(void *event_data)
     s_wifi_connected = true;
     s_wifi_connecting = false;
     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+#ifndef CONFIG_SOC_IEEE802154_SUPPORTED
+    // On radios without 802.15.4 the STA can own the airtime: disable
+    // power-save so the link is heard continuously instead of dying silently
+    // in a weak-RSSI DTIM sleep (zombie link). Coex chips keep modem-sleep on
+    // purpose (see wifi_start_driver).
+    esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (ps_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to disable STA power-save: %s", esp_err_to_name(ps_err));
+    }
+#endif
+    start_health_timer();
     if (was_reconnecting)
     {
         // Reconnected in the background: notify websocket clients. Deferred
@@ -616,6 +707,9 @@ void wifi_stop_sta_connection(void)
 {
     // Intentional disconnect: don't let the reconnect timer bring it back
     stop_reconnect_timer();
+    // …nor the link-health watchdog: after the forget there is nothing to
+    // re-associate to until the user explicitly connects again.
+    stop_health_timer();
 
     esp_err_t ret = esp_wifi_disconnect();
     if (ret != ESP_OK)
