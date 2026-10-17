@@ -63,3 +63,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # background-reconnect status broadcast overflowed the default 2304 B stack
 # and rebooted the chip). Deferred to workers everywhere, but margin is cheap.
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+
+# Task monitor (task_monitor.c) needs uxTaskGetSystemState /
+# uxTaskGetNumberOfTasks, compiled out unless the trace facility is on.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
