@@ -185,37 +185,112 @@ static bool json_safe(const char *s, size_t max)
     return true;
 }
 
+// Redirect limit: GitHub releases/latest/download answers 302 to the signed
+// asset URL, which answers 200 directly.
+#define OTA_MAX_REDIRECTS 5
+
+// Manual-API GET: init + open + fetch_headers of *url*, following redirects
+// by hand. The SDK's auto-redirect only runs inside
+// esp_http_client_perform(); with the manual API (open -> fetch_headers ->
+// read) a 302 surfaces raw and the body would never be the payload (the
+// device saw exactly that against GitHub's releases/latest/download).
+// On success *status is the final non-redirect status; the caller reads the
+// body from the returned client and closes/cleans it up. Returns NULL on
+// transport failure (err explains; *status undefined then).
+static esp_http_client_handle_t ota_http_open_follow(const char *url, int *status,
+                                                     char *err, size_t errlen)
+{
+    *status = -1;
+    char *cur = strdup(url);
+    esp_http_client_handle_t client = NULL;
+    esp_err_t open_err = ESP_FAIL;
+    for (int hop = 0; hop <= OTA_MAX_REDIRECTS; hop++)
+    {
+        esp_http_client_config_t config = {
+            .url = cur,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .timeout_ms = 15000,
+        };
+        client = esp_http_client_init(&config);
+        if (!client)
+        {
+            if (err)
+            {
+                snprintf(err, errlen, "http init failed");
+            }
+            break;
+        }
+        open_err = esp_http_client_open(client, 0);
+        if (open_err != ESP_OK)
+        {
+            if (err)
+            {
+                snprintf(err, errlen, "cannot reach update server");
+            }
+            break;
+        }
+        esp_http_client_fetch_headers(client);
+        *status = esp_http_client_get_status_code(client);
+        if (!(*status == 301 || *status == 302 || *status == 303 ||
+              *status == 307 || *status == 308))
+        {
+            free(cur);
+            return client; // final response: caller reads the body
+        }
+        char *loc = NULL;
+        esp_http_client_get_header(client, "Location", &loc);
+        char *next = loc ? strdup(loc) : NULL;
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        client = NULL;
+        if (!next)
+        {
+            if (err)
+            {
+                snprintf(err, errlen, "update server answered HTTP %d without Location", *status);
+            }
+            break;
+        }
+        ESP_LOGI(TAG, "following HTTP %d redirect to asset URL", *status);
+        free(cur);
+        cur = next;
+    }
+    if (client)
+    {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+    }
+    if (open_err == ESP_OK)
+    {
+        // Requests kept working but redirects never ended: describe it.
+        if (err)
+        {
+            snprintf(err, errlen, "too many redirects arriving at the update URL");
+        }
+    }
+    free(cur);
+    return NULL;
+}
+
 // GET url into a malloc'd NUL-terminated buffer (caller frees). HTTPS
 // validates against the IDF cert bundle; plain http is allowed for local
 // test rigs (signature verification below is the real gate).
 static bool ota_http_get(const char *url, char **out, size_t max_len, char *err, size_t errlen)
 {
-    esp_http_client_config_t config = {
-        .url = url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
+    int status;
+    esp_http_client_handle_t client = ota_http_open_follow(url, &status, err, errlen);
     if (!client)
     {
-        snprintf(err, errlen, "http init failed");
         return false;
     }
-    if (esp_http_client_open(client, 0) != ESP_OK)
+    if (status != 200)
     {
-        snprintf(err, errlen, "cannot reach update server");
-        esp_http_client_cleanup(client);
-        return false;
-    }
-    int content_len = esp_http_client_fetch_headers(client);
-    if (esp_http_client_get_status_code(client) != 200)
-    {
-        snprintf(err, errlen, "update server answered HTTP %d",
-                 esp_http_client_get_status_code(client));
+        snprintf(err, errlen, "update server answered HTTP %d", status);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return false;
     }
+    int content_len = esp_http_client_get_content_length(client);
     if (content_len > 0 && (size_t)content_len > max_len)
     {
         snprintf(err, errlen, "manifest too large (%d)", content_len);
@@ -233,9 +308,18 @@ static bool ota_http_get(const char *url, char **out, size_t max_len, char *err,
     }
     size_t got = 0;
     int n;
-    while ((n = esp_http_client_read(client, buf + got, max_len - got)) > 0)
+    // Hard cap regardless of Content-Length (chunked or LPO responses lie).
+    while ((n = esp_http_client_read(client, buf + got, (int)(max_len - got))) > 0)
     {
         got += (size_t)n;
+        if (got > max_len)
+        {
+            snprintf(err, errlen, "manifest too large");
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            free(buf);
+            return false;
+        }
     }
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
@@ -522,25 +606,18 @@ static void ota_progress(const char *phase, size_t written, size_t total, bool d
 static bool ota_download_image(const char *url, size_t total, const char *sha_hex,
                                const char *phase, const esp_partition_t *part)
 {
-    esp_http_client_config_t config = {
-        .url = url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client || esp_http_client_open(client, 0) != ESP_OK)
+    int status;
+    esp_http_client_handle_t client = ota_http_open_follow(url, &status, NULL, 0);
+    if (!client)
     {
         ota_progress(NULL, 0, 0, true, false, "cannot download web UI image");
-        if (client)
-        {
-            esp_http_client_cleanup(client);
-        }
         return false;
     }
-    esp_http_client_fetch_headers(client);
-    if (esp_http_client_get_status_code(client) != 200)
+    if (status != 200)
     {
-        ota_progress(NULL, 0, 0, true, false, "web UI download answered HTTP error");
+        char msg[64];
+        snprintf(msg, sizeof(msg), "web UI download answered HTTP %d", status);
+        ota_progress(NULL, 0, 0, true, false, msg);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return false;
@@ -676,29 +753,20 @@ static void ota_update_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    esp_http_client_config_t config = {
-        .url = url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client || esp_http_client_open(client, 0) != ESP_OK)
+    int status;
+    esp_http_client_handle_t client =
+        ota_http_open_follow(url, &status, NULL, 0);
+    if (!client)
     {
         ota_progress(NULL, 0, 0, true, false, "cannot download firmware image");
-        if (client)
-        {
-            esp_http_client_cleanup(client);
-        }
         s_updating = false;
         vTaskDelete(NULL);
         return;
     }
-    esp_http_client_fetch_headers(client);
-    if (esp_http_client_get_status_code(client) != 200)
+    if (status != 200)
     {
         char msg[64];
-        snprintf(msg, sizeof(msg), "firmware download answered HTTP %d",
-                 esp_http_client_get_status_code(client));
+        snprintf(msg, sizeof(msg), "firmware download answered HTTP %d", status);
         ota_progress(NULL, 0, 0, true, false, msg);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
