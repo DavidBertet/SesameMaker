@@ -40,6 +40,12 @@ static httpd_handle_t start_webserver(void)
   config.uri_match_fn = httpd_uri_match_wildcard;
   config.lru_purge_enable = true;
   config.enable_so_linger = true;
+  // 170 kB gzip bundle on a marginal link (RSSI -79, modem-sleep DTIM)
+  // dribbles at ~2 kB/s: an 8 kB chunk needs ~4 s, so the 5 s default
+  // send_wait_timeout aborts mid-body ("transfer closed with outstanding
+  // read data"). Give slow clients headroom.
+  config.send_wait_timeout = 30;
+  config.recv_wait_timeout = 10;
 
   ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
   esp_err_t ret = httpd_start(&server, &config);
