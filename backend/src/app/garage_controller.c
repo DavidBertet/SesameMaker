@@ -371,11 +371,11 @@ static bool tx_due(uint32_t now_ms)
     {
         return false;
     }
-    // Line-busy guard: the RX pad idles high; a low level means a byte is
-    // in flight on the wall line (e.g. an unsolicited opener transmission
-    // between our polls). Keying the bus now would collide and corrupt
-    // both frames, so wait a tick.
-    if (gpio_get_level(GARAGE_RX_GPIO) == 0)
+    // Line-busy guard: the RX FET inverts, so the pad idles LOW; a HIGH
+    // level means a byte is in flight on the wall line (e.g. an
+    // unsolicited opener transmission between our polls). Keying the bus
+    // now would collide and corrupt both frames, so wait a tick.
+    if (gpio_get_level(GARAGE_RX_GPIO) != GARAGE_RX_IDLE_LEVEL)
     {
         return false;
     }

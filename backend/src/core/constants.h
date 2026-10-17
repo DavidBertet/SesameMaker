@@ -6,12 +6,17 @@
 #define OTA_PASSWORD ""
 
 // ==== SesameMaker: GPIO pins ====
-// secplus1 wall bus (1200 baud 8E1 half duplex) via interface circuit:
-// TX: open-collector driver (NPN/optocoupler) pulling the wall line low
-// RX: voltage divider scaling the wall line down to <= 3.3 V
-#define GARAGE_TX_GPIO 4
-#define GARAGE_RX_GPIO 16
+// secplus1 wall bus (1200 baud 8E1 half duplex) via 2x 2N7000 interface:
+// TX: common-source driver pulling the wall line low (pin LOW = bus HIGH idle)
+// RX: common-source level shifter to 3.3V, inverting
+//     (wall HIGH idle = pin LOW, wall LOW busy = pin HIGH)
+#define GARAGE_TX_GPIO 20
+#define GARAGE_RX_GPIO 19
 #define GARAGE_UART_NUM 1 // UART1 (UART0 is the USB console)
+// Raw pin levels (UART inversion handles the rest; gpio_get_level does not).
+#define GARAGE_TX_IDLE_LEVEL 0 // FET off, bus released HIGH
+#define GARAGE_RX_IDLE_LEVEL 0 // wall HIGH idle -> pin LOW
+#define GARAGE_RX_BUSY_LEVEL 1 // wall LOW in flight -> pin HIGH
 
 // ==== SesameMaker: dry-contact GPIOs (defaults, overridable via WS config) ====
 // Relay: NO contacts across the opener wall-button terminals.

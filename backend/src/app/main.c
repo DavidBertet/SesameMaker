@@ -49,9 +49,9 @@
 static const char *TAG = "main";
 
 // Latch the TX pad low across software resets (OTA, esp_restart). The
-// IO-MUX hold survives the reset, so GPIO4 never floats through the
-// bootloader window where a floating base could key Q1 and the opener
-// would read a door-button press. Power cycles still need the base
+// IO-MUX hold survives the reset, so the TX gate never floats through the
+// bootloader window where a floating gate could key Q1 and the opener
+// would read a door-button press. Power cycles still need the gate
 // pulldown resistor on the board - hold state is lost when power drops.
 // The dry-contact relay GPIO is held low for the same reason: a floating
 // relay driver at boot reads as a button press to a dumb opener.
@@ -71,9 +71,9 @@ void app_main()
 
   // Release any hold left by the previous shutdown, then hold the secplus1
   // TX line idle from the very first instruction. Until garage_uart_init()
-  // routes the pin, GPIO4 floats during boot/wifi init and can pull the
-  // wall line low -> the opener reads a door-button press and toggles the
-  // door. Drive the NPN base low so the bus stays high. Same for the
+  // routes the pin, the TX gate floats during boot/wifi init and can pull
+  // the wall line low -> the opener reads a door-button press and toggles
+  // the door. Drive the FET gate low so the bus stays high. Same for the
   // dry-contact relay driver so boot never reads as a press.
   gpio_hold_dis(GARAGE_TX_GPIO);
   gpio_set_direction(GARAGE_TX_GPIO, GPIO_MODE_OUTPUT);

@@ -33,7 +33,8 @@ static const char *TAG = "SECPLUS2";
 // counter increments the opener already saw), then wait for the watchdog.
 #define SP2_SYNC_WAIT_MS 3000
 #define SP2_SYNC_JUMP 60
-// Collision guard: defer TX while the RX line reads busy (low).
+    // Collision guard: defer TX while the RX line reads busy (HIGH: the RX
+    // FET inverts the wall LOW in flight).
 #define SP2_BUSY_RETRIES 10
 #define SP2_BUSY_WAIT_MS 5
 // Door press phase spacing.
@@ -79,7 +80,7 @@ static esp_err_t send_tx(secplus2_tx_t tx, bool consume)
     }
     for (int i = 0; i < SP2_BUSY_RETRIES; i++)
     {
-        if (gpio_get_level(GARAGE_RX_GPIO) != 0)
+        if (gpio_get_level(GARAGE_RX_GPIO) == GARAGE_RX_IDLE_LEVEL)
         {
             break;
         }

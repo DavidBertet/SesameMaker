@@ -83,12 +83,13 @@ static esp_err_t uart_install_current(void)
     {
         return ret;
     }
-    // The bus driver is a common-emitter NPN (inverting) that pulls the wall
-    // line low for a '0'. Invert TX so UART idle (low after inversion) keeps
-    // the transistor off and the bus idling high, and '0' bits pull it low.
+    // Both wall FETs are inverting common-source stages. Invert TX so UART
+    // idle keeps the TX FET off and the bus idling high, and invert RX so
+    // the UART sees the true wall level behind the RX FET inverter.
     // Applied BEFORE uart_set_pin so the default UART idle (high) never
-    // drives the base on at the moment the pin is routed to the peripheral.
-    ret = uart_set_line_inverse(GARAGE_UART_NUM, UART_SIGNAL_TXD_INV);
+    // drives the gate on at the moment the pin is routed to the peripheral.
+    ret = uart_set_line_inverse(GARAGE_UART_NUM,
+                                UART_SIGNAL_TXD_INV | UART_SIGNAL_RXD_INV);
     if (ret != ESP_OK)
     {
         return ret;
@@ -99,10 +100,9 @@ static esp_err_t uart_install_current(void)
     {
         return ret;
     }
-    // uart_set_pin enables the internal pull-up on the RX pin; that fights the
-    // divider's bottom leg and floats the node high (RX stuck at 1). Run the
-    // line fully flaccid so the wall divider alone sets the RX level.
-    gpio_set_pull_mode(GARAGE_RX_GPIO, GPIO_FLOATING);
+    // RX FET is open-drain: needs a pull-up (internal + external 10k to 3V3
+    // recommended). uart_set_pin enables the internal pull-up; keep it.
+    gpio_set_pull_mode(GARAGE_RX_GPIO, GPIO_PULLUP_ONLY);
     ret = uart_driver_install(GARAGE_UART_NUM, 256, 0, 0, NULL, 0);
     if (ret != ESP_OK)
     {
@@ -192,7 +192,7 @@ esp_err_t garage_uart_send(uint8_t byte)
 }
 
 // Break pulse ahead of a secplus2 frame. Takes the TX pin off the UART,
-// drives the bus LOW then HIGH through the inverting NPN stage (pin HIGH =
+// drives the bus LOW then HIGH through the inverting FET stage (pin HIGH =
 // bus LOW), and rebuilds the UART after. RX traffic during the ~1.5 ms is
 // lost; callers check line-idle first so collisions stay rare.
 static esp_err_t uart_send_break(void)
