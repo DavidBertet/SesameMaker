@@ -12,6 +12,10 @@ fail=0
 echo "--- backend: core must not include app headers"
 violations=$(find backend/src/core -name '*.[ch]' | while read -r f; do
   grep -o '#include "[^"]*"' "$f" | sed 's/#include "//;s/"//' | while read -r inc; do
+    # product.h is the sanctioned app shim: core resolves it per-product via
+    # the -I app include path so core stays byte-identical across products
+    # (f3bd620). Anything else in app/ is off-limits.
+    [ "$inc" = "product.h" ] && continue
     if [ -f "backend/src/app/$inc" ]; then
       echo "$f -> $inc"
     fi
